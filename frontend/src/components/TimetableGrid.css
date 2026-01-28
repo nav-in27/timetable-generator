@@ -133,6 +133,61 @@
     }
 }
 
+/* Break and Lunch Row Styles */
+.break-row,
+.lunch-row {
+    background: var(--gray-50);
+}
+
+.break-row td,
+.lunch-row td {
+    padding: 0.5rem !important;
+}
+
+.break-cell,
+.lunch-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%) !important;
+    border-radius: var(--radius);
+    min-width: 90px;
+}
+
+.break-cell svg,
+.lunch-cell svg {
+    color: #16a34a;
+}
+
+.lunch-cell {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+}
+
+.lunch-cell svg {
+    color: #d97706;
+}
+
+.break-content,
+.lunch-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    border-radius: var(--radius);
+    color: #16a34a;
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.lunch-content {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #d97706;
+}
+
 .slot-content {
     display: flex;
     flex-direction: column;
