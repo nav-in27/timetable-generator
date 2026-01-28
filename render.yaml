@@ -1,0 +1,19 @@
+# Render Blueprint - Deploy configuration
+# This file configures automatic deployment on Render
+
+services:
+  # Backend API Service
+  - type: web
+    name: timetable-api
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        value: sqlite:///./timetable.db
+    rootDir: backend
+    autoDeploy: true

@@ -4,7 +4,9 @@
  */
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+// Use environment variable for API URL (set in Vercel dashboard)
+// Falls back to localhost for development
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -30,9 +32,9 @@ export const teachersApi = {
   create: (data) => api.post('/teachers/', data),
   update: (id, data) => api.put(`/teachers/${id}`, data),
   delete: (id) => api.delete(`/teachers/${id}`),
-  addSubject: (teacherId, subjectId, effectivenessScore = 0.8) => 
+  addSubject: (teacherId, subjectId, effectivenessScore = 0.8) =>
     api.post(`/teachers/${teacherId}/subjects/${subjectId}?effectiveness_score=${effectivenessScore}`),
-  removeSubject: (teacherId, subjectId) => 
+  removeSubject: (teacherId, subjectId) =>
     api.delete(`/teachers/${teacherId}/subjects/${subjectId}`),
 };
 
@@ -107,7 +109,7 @@ export const substitutionApi = {
     if (filters.toDate) params.append('to_date', filters.toDate);
     return api.get(`/substitution/absences?${params}`);
   },
-  getAffectedAllocations: (teacherId, absenceDate) => 
+  getAffectedAllocations: (teacherId, absenceDate) =>
     api.get(`/substitution/affected-allocations/${teacherId}/${absenceDate}`),
   getCandidates: (allocationId, substitutionDate) =>
     api.get(`/substitution/candidates/${allocationId}/${substitutionDate}`),
