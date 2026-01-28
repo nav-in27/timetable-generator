@@ -36,6 +36,33 @@ Score = (0.4 × SubjectMatch) + (0.3 × (1 - NormalizedLoad))
       + (0.2 × Effectiveness) + (0.1 × Experience)
 ```
 
+## 🚀 Quick Start (One Command)
+
+The easiest way to run the entire project:
+
+```bash
+# Clone the repository
+git clone https://github.com/nav-in27/timetable-generator.git
+cd timetable-generator
+
+# Run the project (starts both backend and frontend)
+python run_project.py
+```
+
+This will:
+1. ✅ Create a Python virtual environment
+2. ✅ Install backend dependencies
+3. ✅ Install frontend dependencies  
+4. ✅ Seed the database with sample data
+5. ✅ Start the backend server (http://localhost:8000)
+6. ✅ Start the frontend server (http://localhost:5173)
+
+**Requirements:**
+- Python 3.10+
+- Node.js 18+
+
+---
+
 ## 🏗️ Architecture
 
 ```
@@ -200,8 +227,21 @@ See full API documentation at http://localhost:8000/docs
 
 ## 📄 License
 
-This project is created for educational purposes (college project demo).
+This project is open source and available under the [MIT License](LICENSE).
 
 ---
 
-Built with ❤️ using FastAPI + React
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to:
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+**⭐ Star this repo if you find it helpful!**
+
+Built with ❤️ using FastAPI + React | [GitHub](https://github.com/nav-in27/timetable-generator)
