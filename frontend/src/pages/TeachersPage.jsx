@@ -1,0 +1,313 @@
+/**
+ * Teachers Management Page
+ * CRUD operations for teachers
+ */
+import { useEffect, useState } from 'react';
+import {
+    Plus,
+    Edit2,
+    Trash2,
+    X,
+    User,
+    Mail,
+    Clock,
+    Star,
+    BookOpen,
+    AlertCircle,
+} from 'lucide-react';
+import { teachersApi, subjectsApi } from '../services/api';
+import './CrudPage.css';
+
+export default function TeachersPage() {
+    const [teachers, setTeachers] = useState([]);
+    const [subjects, setSubjects] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [showModal, setShowModal] = useState(false);
+    const [editingTeacher, setEditingTeacher] = useState(null);
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        phone: '',
+        max_hours_per_week: 20,
+        experience_years: 1,
+        experience_score: 0.5,
+        available_days: '0,1,2,3,4',
+        subject_ids: [],
+    });
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            const [teachersRes, subjectsRes] = await Promise.all([
+                teachersApi.getAll(false),
+                subjectsApi.getAll(),
+            ]);
+            setTeachers(teachersRes.data);
+            setSubjects(subjectsRes.data);
+        } catch (err) {
+            setError('Failed to load data');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openModal = (teacher = null) => {
+        if (teacher) {
+            setEditingTeacher(teacher);
+            setFormData({
+                name: teacher.name,
+                email: teacher.email || '',
+                phone: teacher.phone || '',
+                max_hours_per_week: teacher.max_hours_per_week,
+                experience_years: teacher.experience_years,
+                experience_score: teacher.experience_score,
+                available_days: teacher.available_days,
+                subject_ids: teacher.subjects?.map(s => s.id) || [],
+            });
+        } else {
+            setEditingTeacher(null);
+            setFormData({
+                name: '',
+                email: '',
+                phone: '',
+                max_hours_per_week: 20,
+                experience_years: 1,
+                experience_score: 0.5,
+                available_days: '0,1,2,3,4',
+                subject_ids: [],
+            });
+        }
+        setShowModal(true);
+    };
+
+    const closeModal = () => {
+        setShowModal(false);
+        setEditingTeacher(null);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            if (editingTeacher) {
+                await teachersApi.update(editingTeacher.id, formData);
+            } else {
+                await teachersApi.create(formData);
+            }
+            fetchData();
+            closeModal();
+        } catch (err) {
+            setError('Failed to save teacher');
+            console.error(err);
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (!confirm('Are you sure you want to remove this teacher?')) return;
+        try {
+            await teachersApi.delete(id);
+            fetchData();
+        } catch (err) {
+            setError('Failed to delete teacher');
+            console.error(err);
+        }
+    };
+
+    const toggleSubject = (subjectId) => {
+        setFormData(prev => ({
+            ...prev,
+            subject_ids: prev.subject_ids.includes(subjectId)
+                ? prev.subject_ids.filter(id => id !== subjectId)
+                : [...prev.subject_ids, subjectId],
+        }));
+    };
+
+    if (loading) {
+        return <div className="loading"><div className="spinner"></div></div>;
+    }
+
+    return (
+        <div className="crud-page">
+            <div className="page-header">
+                <div>
+                    <h1>Teachers</h1>
+                    <p>Manage faculty members and their subjects</p>
+                </div>
+                <button className="btn btn-primary" onClick={() => openModal()}>
+                    <Plus size={18} />
+                    Add Teacher
+                </button>
+            </div>
+
+            {error && (
+                <div className="alert alert-error">
+                    <AlertCircle size={18} />
+                    {error}
+                </div>
+            )}
+
+            <div className="crud-grid">
+                {teachers.map((teacher) => (
+                    <div key={teacher.id} className={`crud-item ${!teacher.is_active ? 'inactive' : ''}`}>
+                        <div className="crud-item-header">
+                            <div>
+                                <h3 className="crud-item-title">{teacher.name}</h3>
+                                {!teacher.is_active && <span className="badge badge-error">Inactive</span>}
+                            </div>
+                            <div className="crud-item-actions">
+                                <button className="btn btn-sm btn-secondary" onClick={() => openModal(teacher)}>
+                                    <Edit2 size={14} />
+                                </button>
+                                <button className="btn btn-sm btn-danger" onClick={() => handleDelete(teacher.id)}>
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="crud-item-details">
+                            {teacher.email && (
+                                <span className="crud-item-detail">
+                                    <Mail size={14} /> {teacher.email}
+                                </span>
+                            )}
+                            <span className="crud-item-detail">
+                                <Clock size={14} /> Max {teacher.max_hours_per_week} hrs/week
+                            </span>
+                            <span className="crud-item-detail">
+                                <Star size={14} /> {teacher.experience_years} yrs exp
+                            </span>
+                        </div>
+                        {teacher.subjects?.length > 0 && (
+                            <div className="crud-item-tags">
+                                {teacher.subjects.map(s => (
+                                    <span key={s.id} className="tag">{s.code}</span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {teachers.length === 0 && (
+                <div className="empty-state">
+                    <User size={48} />
+                    <h3>No Teachers Yet</h3>
+                    <p>Add your first teacher to get started</p>
+                    <button className="btn btn-primary" onClick={() => openModal()}>
+                        <Plus size={18} />
+                        Add Teacher
+                    </button>
+                </div>
+            )}
+
+            {/* Modal */}
+            {showModal && (
+                <div className="modal-overlay" onClick={closeModal}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>{editingTeacher ? 'Edit Teacher' : 'Add Teacher'}</h2>
+                            <button className="modal-close" onClick={closeModal}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label className="form-label">Email</label>
+                                    <input
+                                        type="email"
+                                        className="form-input"
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Phone</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={formData.phone}
+                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label className="form-label">Max Hours/Week</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        value={formData.max_hours_per_week}
+                                        onChange={(e) => setFormData({ ...formData, max_hours_per_week: parseInt(e.target.value) })}
+                                        min={1}
+                                        max={40}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Experience (Years)</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        value={formData.experience_years}
+                                        onChange={(e) => setFormData({ ...formData, experience_years: parseInt(e.target.value) })}
+                                        min={0}
+                                    />
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Experience Score (0-1)</label>
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    value={formData.experience_score}
+                                    onChange={(e) => setFormData({ ...formData, experience_score: parseFloat(e.target.value) })}
+                                    min={0}
+                                    max={1}
+                                    step={0.1}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Subjects (Click to toggle)</label>
+                                <div className="subject-selector">
+                                    {subjects.map((subject) => (
+                                        <button
+                                            key={subject.id}
+                                            type="button"
+                                            className={`subject-chip ${formData.subject_ids.includes(subject.id) ? 'selected' : ''}`}
+                                            onClick={() => toggleSubject(subject.id)}
+                                        >
+                                            <BookOpen size={14} />
+                                            {subject.code}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="modal-actions">
+                                <button type="button" className="btn btn-secondary" onClick={closeModal}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    {editingTeacher ? 'Update' : 'Create'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
