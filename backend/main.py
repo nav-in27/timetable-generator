@@ -24,6 +24,18 @@ async def lifespan(app: FastAPI):
     # Create all database tables
     Base.metadata.create_all(bind=engine)
     print("[INFO] Database tables created/verified")
+    
+    # Auto-seed if needed (wrapped in try-except to prevent crash)
+    try:
+        from seed_data import seed_database
+        print("[INFO] Checking for seed data...")
+        seed_database()
+        print("[INFO] Database check/seed completed")
+    except ImportError:
+        print("[WARN] Could not import seed_data. Skipping auto-seed.")
+    except Exception as e:
+        print(f"[WARN] Auto-seeding failed (non-critical): {e}")
+        
     yield
     # Cleanup (if needed)
     print("[INFO] Shutting down...")
