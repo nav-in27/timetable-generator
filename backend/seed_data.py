@@ -32,10 +32,10 @@ def seed_database():
     try:
         # Check if data already exists
         if db.query(Teacher).count() > 0:
-            print("⚠️  Database already has data. Skipping seed.")
+            print("[WARN] Database already has data. Skipping seed.")
             return
         
-        print("🌱 Seeding database with sample data...")
+        print("[SEED] Seeding database with sample data...")
         
         # ============= ROOMS =============
         rooms_data = [
@@ -52,7 +52,7 @@ def seed_database():
             db.add(room)
         
         db.commit()
-        print(f"  ✅ Created {len(rooms_data)} rooms")
+        print(f"  [OK] Created {len(rooms_data)} rooms")
         
         # ============= SUBJECTS =============
         subjects_data = [
@@ -80,7 +80,7 @@ def seed_database():
         for s in subjects:
             db.refresh(s)
         
-        print(f"  ✅ Created {len(subjects_data)} subjects")
+        print(f"  [OK] Created {len(subjects_data)} subjects")
         
         # ============= TEACHERS =============
         teachers_data = [
@@ -170,7 +170,7 @@ def seed_database():
                     db.execute(stmt)
         
         db.commit()
-        print(f"  ✅ Created {len(teachers_data)} teachers with subject assignments")
+        print(f"  [OK] Created {len(teachers_data)} teachers with subject assignments")
         
         # ============= SEMESTERS (CLASSES) =============
         semesters_data = [
@@ -185,9 +185,9 @@ def seed_database():
             db.add(semester)
         
         db.commit()
-        print(f"  ✅ Created {len(semesters_data)} semesters/classes")
+        print(f"  [OK] Created {len(semesters_data)} semesters/classes")
         
-        print("\n🎉 Database seeded successfully!")
+        print("\n[SUCCESS] Database seeded successfully!")
         print("\nSummary:")
         print(f"  - Rooms: {len(rooms_data)}")
         print(f"  - Subjects: {len(subjects_data)}")
@@ -195,7 +195,7 @@ def seed_database():
         print(f"  - Semesters: {len(semesters_data)}")
         
     except Exception as e:
-        print(f"❌ Error seeding database: {e}")
+        print(f"[ERROR] Error seeding database: {e}")
         db.rollback()
         raise
     finally:

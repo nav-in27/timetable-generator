@@ -34,42 +34,42 @@ IS_WINDOWS = platform.system() == "Windows"
 def print_banner():
     """Print a startup banner."""
     print("\n" + "=" * 60)
-    print("   🎓 AI DEPT TIMETABLE GENERATOR")
+    print("   [TIMETABLE GENERATOR] AI DEPT")
     print("   Automated Timetable & Teacher Substitution System")
     print("=" * 60 + "\n")
 
 
 def check_requirements():
     """Check if required dependencies are available."""
-    print("🔍 Checking requirements...")
+    print("[INFO] Checking requirements...")
     
     # Check Python packages
     try:
         import uvicorn
         import fastapi
-        print("   ✅ Backend dependencies found")
+        print("   [OK] Backend dependencies found")
     except ImportError:
-        print("   ⚠️  Backend dependencies missing. Installing...")
+        print("   [WARN] Backend dependencies missing. Installing...")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
             cwd=BACKEND_DIR,
             check=True
         )
-        print("   ✅ Backend dependencies installed")
+        print("   [OK] Backend dependencies installed")
     
     # Check if node_modules exists for frontend
     node_modules_path = os.path.join(FRONTEND_DIR, "node_modules")
     if not os.path.exists(node_modules_path):
-        print("   ⚠️  Frontend dependencies missing. Installing...")
+        print("   [WARN] Frontend dependencies missing. Installing...")
         subprocess.run(
             ["npm", "install"],
             cwd=FRONTEND_DIR,
             shell=True,
             check=True
         )
-        print("   ✅ Frontend dependencies installed")
+        print("   [OK] Frontend dependencies installed")
     else:
-        print("   ✅ Frontend dependencies found")
+        print("   [OK] Frontend dependencies found")
     
     print()
 
@@ -77,8 +77,8 @@ def check_requirements():
 def start_backend():
     """Start the FastAPI backend server."""
     global backend_process
-    print(f"🚀 Starting Backend Server on http://localhost:{BACKEND_PORT}")
-    print(f"   📚 API Docs: http://localhost:{BACKEND_PORT}/docs")
+    print(f"[START] Starting Backend Server on http://localhost:{BACKEND_PORT}")
+    print(f"   API Docs: http://localhost:{BACKEND_PORT}/docs")
     
     # Use CREATE_NEW_PROCESS_GROUP on Windows for better signal handling
     creation_flags = 0
@@ -97,7 +97,7 @@ def start_backend():
 def start_frontend():
     """Start the Vite React frontend server."""
     global frontend_process
-    print(f"🎨 Starting Frontend Server on http://localhost:{FRONTEND_PORT}")
+    print(f"[START] Starting Frontend Server on http://localhost:{FRONTEND_PORT}")
     
     # Use CREATE_NEW_PROCESS_GROUP on Windows for better signal handling
     creation_flags = 0
@@ -116,7 +116,7 @@ def start_frontend():
 
 def cleanup(signum=None, frame=None):
     """Clean up processes on exit."""
-    print("\n\n🛑 Shutting down servers...")
+    print("\n\n[STOP] Shutting down servers...")
     
     if backend_process:
         try:
@@ -125,10 +125,10 @@ def cleanup(signum=None, frame=None):
             else:
                 backend_process.terminate()
             backend_process.wait(timeout=5)
-            print("   ✅ Backend server stopped")
+            print("   [OK] Backend server stopped")
         except Exception as e:
             backend_process.kill()
-            print(f"   ⚠️ Backend server force killed: {e}")
+            print(f"   [WARN] Backend server force killed: {e}")
     
     if frontend_process:
         try:
@@ -137,12 +137,12 @@ def cleanup(signum=None, frame=None):
             else:
                 frontend_process.terminate()
             frontend_process.wait(timeout=5)
-            print("   ✅ Frontend server stopped")
+            print("   [OK] Frontend server stopped")
         except Exception as e:
             frontend_process.kill()
-            print(f"   ⚠️ Frontend server force killed: {e}")
+            print(f"   [WARN] Frontend server force killed: {e}")
     
-    print("\n👋 Goodbye!\n")
+    print("\n[EXIT] Goodbye!\n")
     sys.exit(0)
 
 
@@ -170,10 +170,10 @@ def main():
         time.sleep(3)  # Wait for frontend to start
         
         print("\n" + "=" * 60)
-        print("   ✅ All servers are running!")
-        print(f"   🌐 Frontend: http://localhost:{FRONTEND_PORT}")
-        print(f"   🔧 Backend API: http://localhost:{BACKEND_PORT}")
-        print(f"   📚 API Docs: http://localhost:{BACKEND_PORT}/docs")
+        print("   [OK] All servers are running!")
+        print(f"   Frontend: http://localhost:{FRONTEND_PORT}")
+        print(f"   Backend API: http://localhost:{BACKEND_PORT}")
+        print(f"   API Docs: http://localhost:{BACKEND_PORT}/docs")
         print("=" * 60)
         print("\n   Press Ctrl+C to stop all servers\n")
         
@@ -184,17 +184,17 @@ def main():
         while True:
             # Check if processes are still running
             if backend_process and backend_process.poll() is not None:
-                print("\n⚠️  Backend server stopped unexpectedly!")
+                print("\n[WARN] Backend server stopped unexpectedly!")
                 break
             if frontend_process and frontend_process.poll() is not None:
-                print("\n⚠️  Frontend server stopped unexpectedly!")
+                print("\n[WARN] Frontend server stopped unexpectedly!")
                 break
             time.sleep(1)
             
     except KeyboardInterrupt:
         cleanup()
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] Error: {e}")
         cleanup()
 
 
