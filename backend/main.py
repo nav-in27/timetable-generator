@@ -23,10 +23,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan: create tables on startup."""
     # Create all database tables
     Base.metadata.create_all(bind=engine)
-    print("✅ Database tables created/verified")
+    print("[INFO] Database tables created/verified")
     yield
     # Cleanup (if needed)
-    print("👋 Shutting down...")
+    print("[INFO] Shutting down...")
 
 
 # Create FastAPI app
