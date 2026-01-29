@@ -250,3 +250,112 @@ class Substitution(Base):
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ============================================================================
+# FIXED TEACHER ASSIGNMENT MODEL (Issue 1 Fix)
+# ============================================================================
+
+class ClassSubjectTeacher(Base):
+    """
+    Fixed one-to-one mapping of (semester, subject) -> teacher.
+    
+    HARD CONSTRAINT: For any (semester_id, subject_id) pair, EXACTLY ONE teacher
+    is assigned for ALL slots throughout the week. This prevents the bug where
+    different teachers teach the same subject to the same class on different days.
+    
+    This mapping is:
+    - Created ONCE during the pre-assignment phase
+    - NEVER changed during slot generation
+    - NOT altered by mutation or GA optimization
+    """
+    __tablename__ = "class_subject_teachers"
+    
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    
+    semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id"))
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"))
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id"))
+    
+    # Assignment metadata
+    assignment_reason: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # Stores why this teacher was selected (e.g., "lowest_workload", "best_effectiveness")
+    
+    # Lock flag - once locked, cannot be changed
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Unique constraint: One teacher per (semester, subject)
+    __table_args__ = (
+        UniqueConstraint("semester_id", "subject_id", name="uq_semester_subject_teacher"),
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ============================================================================
+# ELECTIVE GROUP MODEL (Issue 2 Fix)
+# ============================================================================
+
+# Association table for elective groups and participating semesters
+elective_group_semesters = Table(
+    "elective_group_semesters",
+    Base.metadata,
+    Column("elective_group_id", Integer, ForeignKey("elective_groups.id", ondelete="CASCADE"), primary_key=True),
+    Column("semester_id", Integer, ForeignKey("semesters.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class ElectiveGroup(Base):
+    """
+    Represents a shared elective subject taken by students from multiple semesters/departments.
+    
+    HARD CONSTRAINT: An elective subject MUST be scheduled as ONE COMMON EVENT
+    shared by ALL participating semesters at the SAME day and SAME period.
+    
+    Elective scheduling happens BEFORE normal subject scheduling:
+    1. Find a COMMON FREE SLOT where teacher AND all participating semesters are free
+    2. Lock that slot across all semesters
+    3. Inject into all semester timetables
+    4. Normal scheduling then avoids these locked slots
+    """
+    __tablename__ = "elective_groups"
+    
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    
+    # The elective subject
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"))
+    
+    # Fixed teacher for this elective (assigned once, never changed)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id"))
+    
+    # Optional: specific room for elective
+    room_id: Mapped[Optional[int]] = mapped_column(ForeignKey("rooms.id"), nullable=True)
+    
+    # Hours per week for this elective
+    hours_per_week: Mapped[int] = mapped_column(Integer, default=3)
+    
+    # Elective name/code for grouping
+    elective_code: Mapped[str] = mapped_column(String(20), unique=True)
+    elective_name: Mapped[str] = mapped_column(String(200))
+    
+    # Is this elective active for scheduling?
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Lock flag - once scheduled, slots are locked
+    is_scheduled: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Scheduled slots stored as JSON-like string: "day:slot,day:slot,..."
+    # e.g., "1:2,3:2" means Tuesday period 3 and Thursday period 3
+    scheduled_slots: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Relationships
+    subject: Mapped["Subject"] = relationship()
+    teacher: Mapped["Teacher"] = relationship()
+    room: Mapped[Optional["Room"]] = relationship()
+    participating_semesters: Mapped[List["Semester"]] = relationship(
+        secondary=elective_group_semesters
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

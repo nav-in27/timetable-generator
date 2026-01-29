@@ -1,9 +1,11 @@
 """
 Timetable Generation Engine.
 
-Implements a two-phase approach:
-1. Greedy/CSP-based initial generation (finds feasible solution)
-2. Genetic Algorithm optimization (improves soft constraint satisfaction)
+Implements a multi-phase approach:
+1. PREPROCESSING: One-time teacher assignment per (class, subject)
+2. ELECTIVE SCHEDULING: Schedule electives FIRST across all participating departments
+3. GREEDY/CSP-based initial generation (finds feasible solution)
+4. GENETIC ALGORITHM optimization (improves soft constraint satisfaction)
 
 ========================
 COLLEGE TIME STRUCTURE
@@ -34,6 +36,8 @@ SCHEDULING RULES
 ========================
 HARD CONSTRAINTS (must never be violated):
 ========================
+- **ONE teacher per (class, subject)** - FIXED at preprocessing, never changed
+- **Electives synchronized** - Same elective = same slot across all departments
 - A teacher cannot teach two classes at the same time
 - A room cannot be assigned to two classes at the same time
 - Teacher must be qualified for the subject
@@ -55,7 +59,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     Teacher, Subject, Semester, Room, Allocation,
-    teacher_subjects, SubjectType, RoomType
+    teacher_subjects, SubjectType, RoomType,
+    ClassSubjectTeacher, ElectiveGroup, elective_group_semesters
 )
 from app.core.config import get_settings
 
@@ -76,6 +81,8 @@ class SlotRequirement:
     qualified_teachers: List[int]
     min_room_capacity: int
     requires_lab: bool
+    # ISSUE 1 FIX: Pre-assigned teacher (fixed, never changes)
+    assigned_teacher_id: Optional[int] = None
 
 
 @dataclass
@@ -101,6 +108,9 @@ class AllocationEntry:
     day: int
     slot: int
     is_lab_continuation: bool = False
+    # ISSUE 2 FIX: Flag for elective allocations (locked, cannot be moved)
+    is_elective: bool = False
+    elective_group_id: Optional[int] = None
 
 
 @dataclass
@@ -112,6 +122,13 @@ class TimetableState:
     teacher_slots: Dict[int, Set[Tuple[int, int]]] = field(default_factory=dict)
     room_slots: Dict[int, Set[Tuple[int, int]]] = field(default_factory=dict)
     semester_slots: Dict[int, Set[Tuple[int, int]]] = field(default_factory=dict)
+    
+    # ISSUE 1 FIX: Fixed teacher assignments (semester_id, subject_id) -> teacher_id
+    fixed_teacher_assignments: Dict[Tuple[int, int], int] = field(default_factory=dict)
+    
+    # ISSUE 2 FIX: Locked elective slots that cannot be modified
+    # Key: (semester_id, day, slot), Value: elective_group_id
+    locked_elective_slots: Dict[Tuple[int, int, int], int] = field(default_factory=dict)
     
     def add_allocation(self, entry: AllocationEntry):
         """Add an allocation and update lookup tables."""
@@ -130,6 +147,11 @@ class TimetableState:
         if entry.semester_id not in self.semester_slots:
             self.semester_slots[entry.semester_id] = set()
         self.semester_slots[entry.semester_id].add(slot_key)
+        
+        # If this is an elective, mark the slot as locked
+        if entry.is_elective and entry.elective_group_id:
+            lock_key = (entry.semester_id, entry.day, entry.slot)
+            self.locked_elective_slots[lock_key] = entry.elective_group_id
     
     def is_teacher_free(self, teacher_id: int, day: int, slot: int) -> bool:
         """Check if teacher is free at given slot."""
@@ -148,6 +170,10 @@ class TimetableState:
         if semester_id not in self.semester_slots:
             return True
         return (day, slot) not in self.semester_slots[semester_id]
+    
+    def is_slot_locked(self, semester_id: int, day: int, slot: int) -> bool:
+        """Check if a slot is locked (elective or other fixed allocation)."""
+        return (semester_id, day, slot) in self.locked_elective_slots
     
     def get_teacher_load(self, teacher_id: int) -> int:
         """Get current number of allocated slots for a teacher."""
@@ -171,10 +197,27 @@ class TimetableState:
 class TimetableGenerator:
     """
     Main timetable generation engine.
-    Implements college-standard timetable with:
-    - 7 periods per day - ALL must be filled
-    - Labs can be at any consecutive slots
-    - Free period ONLY when no teacher is available
+    
+    Implements a MULTI-PHASE approach to ensure academic correctness:
+    
+    PHASE 0 - PREPROCESSING:
+        - Assign ONE teacher per (class, subject) - FIXED, never changes
+        - Build elective groups from database
+    
+    PHASE 1 - ELECTIVE SCHEDULING:
+        - Schedule electives FIRST (before normal subjects)
+        - Find COMMON slots where ALL participating semesters + teacher are free
+        - LOCK these slots - they cannot be moved
+    
+    PHASE 2 - NORMAL SCHEDULING:
+        - Schedule regular subjects using greedy/CSP
+        - Use FIXED teacher assignments (no re-selection)
+        - Avoid locked elective slots
+    
+    PHASE 3 - OPTIMIZATION:
+        - GA optimization for soft constraints
+        - ONLY swap slots, NEVER change teacher assignments
+        - NEVER move elective slots
     """
     
     # All valid lab slot pairs (labs can be at any time)
@@ -185,13 +228,23 @@ class TimetableGenerator:
         self.days = list(range(5))  # Monday-Friday
         self.slots = list(range(settings.SLOTS_PER_DAY))  # 7 slots (0-6)
         
+        # ISSUE 1 FIX: In-memory cache of fixed teacher assignments
+        # Key: (semester_id, subject_id), Value: teacher_id
+        self._fixed_teacher_cache: Dict[Tuple[int, int], int] = {}
+        
     def generate(
         self,
         semester_ids: Optional[List[int]] = None,
         clear_existing: bool = True
     ) -> Tuple[bool, str, List[AllocationEntry], float]:
         """
-        Main generation method.
+        Main generation method with multi-phase approach.
+        
+        Algorithm Flow:
+        1. PREPROCESSING: Assign one teacher per (class, subject)
+        2. ELECTIVE SCHEDULING: Schedule electives first, lock slots
+        3. NORMAL SCHEDULING: Greedy generation with fixed teachers
+        4. OPTIMIZATION: GA optimization (slot swaps only)
         
         Returns:
             Tuple of (success, message, allocations, generation_time)
@@ -218,44 +271,122 @@ class TimetableGenerator:
         if not rooms:
             return False, "No available rooms found", [], 0
         
-        # Build teacher-subject mapping
+        # Build teacher-subject mapping (subject_id -> [teacher_ids])
         teacher_subject_map = self._build_teacher_subject_map()
+        
+        # Build teacher lookup by ID
+        teacher_by_id = {t.id: t for t in teachers}
         
         # Build room lookup
         lecture_rooms = [r for r in rooms if r.room_type in [RoomType.LECTURE, RoomType.SEMINAR]]
         lab_rooms = [r for r in rooms if r.room_type == RoomType.LAB]
         
-        # Clear existing allocations if requested
+        # Clear existing allocations and fixed assignments if requested
         if clear_existing:
             sem_ids = [s.id for s in semesters]
             self.db.query(Allocation).filter(Allocation.semester_id.in_(sem_ids)).delete()
+            # Also clear previous fixed teacher assignments for these semesters
+            self.db.query(ClassSubjectTeacher).filter(
+                ClassSubjectTeacher.semester_id.in_(sem_ids)
+            ).delete()
             self.db.commit()
         
-        # Build requirements list
-        requirements = self._build_requirements(semesters, subjects, teacher_subject_map)
+        # ============================================================
+        # PHASE 0: PREPROCESSING - One-time teacher assignment
+        # ============================================================
+        print("📋 Phase 0: Preprocessing - Assigning fixed teachers...")
+        
+        fixed_assignments = self._assign_fixed_teachers(
+            semesters, subjects, teacher_subject_map, teacher_by_id
+        )
+        
+        if not fixed_assignments:
+            return False, "Failed to assign teachers to subjects", [], time.time() - start_time
+        
+        print(f"   ✅ Assigned {len(fixed_assignments)} teacher-subject pairs")
+        
+        # Build requirements list WITH pre-assigned teachers
+        requirements = self._build_requirements_with_fixed_teachers(
+            semesters, subjects, teacher_subject_map, fixed_assignments
+        )
         
         if not requirements:
             return False, "No requirements to schedule (check teacher-subject assignments)", [], 0
         
-        # Separate lab and theory requirements
-        lab_requirements = [r for r in requirements if r.requires_lab]
-        theory_requirements = [r for r in requirements if not r.requires_lab]
+        # Initialize timetable state with fixed assignments
+        state = TimetableState()
+        state.fixed_teacher_assignments = fixed_assignments.copy()
         
-        # Phase 1: Greedy generation - fill ALL slots
+        # Initialize teacher loads
+        teacher_loads: Dict[int, int] = {t.id: 0 for t in teachers}
+        teacher_max_loads: Dict[int, int] = {t.id: t.max_hours_per_week for t in teachers}
+        
+        # ============================================================
+        # PHASE 1: ELECTIVE SCHEDULING (schedule electives FIRST)
+        # ============================================================
+        print("📋 Phase 1: Scheduling electives...")
+        
+        elective_groups = self.db.query(ElectiveGroup).filter(
+            ElectiveGroup.is_active == True
+        ).all()
+        
+        electives_scheduled = 0
+        for elective in elective_groups:
+            success = self._schedule_elective_group(
+                state, elective, lecture_rooms + lab_rooms,
+                teacher_loads, teacher_max_loads
+            )
+            if success:
+                electives_scheduled += 1
+                # Update elective status in DB
+                elective.is_scheduled = True
+        
+        self.db.commit()
+        print(f"   ✅ Scheduled {electives_scheduled} elective groups")
+        
+        # ============================================================
+        # PHASE 2: NORMAL SCHEDULING (greedy generation)
+        # ============================================================
+        print("📋 Phase 2: Scheduling regular subjects...")
+        
+        # Separate lab and theory requirements (excluding elective subjects)
+        elective_subject_ids = {eg.subject_id for eg in elective_groups}
+        
+        non_elective_requirements = [
+            r for r in requirements if r.subject_id not in elective_subject_ids
+        ]
+        
+        lab_requirements = [r for r in non_elective_requirements if r.requires_lab]
+        theory_requirements = [r for r in non_elective_requirements if not r.requires_lab]
+        
         state, success, message = self._greedy_generate(
-            lab_requirements, theory_requirements, teachers, lecture_rooms, lab_rooms, semesters,
-            all_teachers=teachers  # Pass all teachers for free period check
+            state, lab_requirements, theory_requirements, 
+            teachers, lecture_rooms, lab_rooms, semesters,
+            teacher_loads, teacher_max_loads,
+            fixed_assignments,  # Pass fixed assignments
+            all_teachers=teachers
         )
         
         if not success:
             return False, message, [], time.time() - start_time
         
-        # Phase 2: Genetic Algorithm optimization (if we have a valid solution)
-        if success and len(state.allocations) > 10:
-            state = self._genetic_optimize(state, teachers)
+        print(f"   ✅ Generated {len(state.allocations)} total allocations")
+        
+        # ============================================================
+        # PHASE 3: GA OPTIMIZATION (slot swaps only, no teacher changes)
+        # ============================================================
+        print("📋 Phase 3: Optimizing timetable...")
+        
+        if len(state.allocations) > 10:
+            state = self._genetic_optimize(state, teachers, fixed_assignments)
+        
+        print("   ✅ Optimization complete")
         
         # Save allocations to database
         self._save_allocations(state.allocations)
+        
+        # Save fixed teacher assignments to database for future reference
+        self._save_fixed_assignments(fixed_assignments)
         
         generation_time = time.time() - start_time
         
@@ -265,6 +396,193 @@ class TimetableGenerator:
             state.allocations,
             generation_time
         )
+    
+    def _assign_fixed_teachers(
+        self,
+        semesters: List[Semester],
+        subjects: List[Subject],
+        teacher_subject_map: Dict[int, List[int]],
+        teacher_by_id: Dict[int, Teacher]
+    ) -> Dict[Tuple[int, int], int]:
+        """
+        ISSUE 1 FIX: Assign exactly ONE teacher per (semester, subject) pair.
+        
+        This is a ONE-TIME assignment that is:
+        - Fixed for the entire timetable generation
+        - Never changed during slot assignment
+        - Not altered by GA mutation
+        
+        Selection criteria (in order):
+        1. Subject specialization match (mandatory - from teacher_subjects)
+        2. Lowest current workload (to balance)
+        3. Highest effectiveness score (for quality)
+        
+        Returns:
+            Dict mapping (semester_id, subject_id) -> teacher_id
+        """
+        fixed_assignments: Dict[Tuple[int, int], int] = {}
+        
+        # Track projected workload for fair distribution
+        projected_workload: Dict[int, int] = {t_id: 0 for t_id in teacher_by_id.keys()}
+        
+        for semester in semesters:
+            for subject in subjects:
+                key = (semester.id, subject.id)
+                
+                # Get qualified teachers for this subject
+                qualified_teacher_ids = teacher_subject_map.get(subject.id, [])
+                if not qualified_teacher_ids:
+                    continue  # No teacher can teach this subject
+                
+                # Filter by availability and get their details
+                available_teachers = []
+                for t_id in qualified_teacher_ids:
+                    teacher = teacher_by_id.get(t_id)
+                    if teacher and teacher.is_active:
+                        # Check if teacher has capacity (considering weekly hours needed)
+                        max_hours = teacher.max_hours_per_week
+                        current_projected = projected_workload.get(t_id, 0)
+                        hours_needed = subject.weekly_hours
+                        
+                        if current_projected + hours_needed <= max_hours * 1.2:  # 20% buffer
+                            available_teachers.append({
+                                'id': t_id,
+                                'projected_load': current_projected,
+                                'experience_score': teacher.experience_score,
+                                'max_hours': max_hours
+                            })
+                
+                if not available_teachers:
+                    # All qualified teachers are at capacity, pick least loaded anyway
+                    for t_id in qualified_teacher_ids:
+                        teacher = teacher_by_id.get(t_id)
+                        if teacher and teacher.is_active:
+                            available_teachers.append({
+                                'id': t_id,
+                                'projected_load': projected_workload.get(t_id, 0),
+                                'experience_score': teacher.experience_score,
+                                'max_hours': teacher.max_hours_per_week
+                            })
+                
+                if not available_teachers:
+                    continue  # Truly no one available
+                
+                # Sort by: lowest projected load, then highest experience score
+                available_teachers.sort(
+                    key=lambda t: (t['projected_load'], -t['experience_score'])
+                )
+                
+                # Select the best teacher
+                selected_teacher_id = available_teachers[0]['id']
+                fixed_assignments[key] = selected_teacher_id
+                
+                # Update projected workload
+                projected_workload[selected_teacher_id] += subject.weekly_hours
+        
+        return fixed_assignments
+    
+    def _schedule_elective_group(
+        self,
+        state: TimetableState,
+        elective: ElectiveGroup,
+        rooms: List[Room],
+        teacher_loads: Dict[int, int],
+        teacher_max_loads: Dict[int, int]
+    ) -> bool:
+        """
+        ISSUE 2 FIX: Schedule an elective group across ALL participating semesters.
+        
+        This finds a COMMON slot where:
+        - The elective's assigned teacher is free
+        - ALL participating semesters are free
+        - A suitable room is available
+        
+        Once scheduled, the slot is LOCKED and cannot be moved.
+        
+        Returns:
+            True if successfully scheduled, False otherwise
+        """
+        if not elective.participating_semesters:
+            return False  # No semesters to schedule
+        
+        participating_semester_ids = [s.id for s in elective.participating_semesters]
+        teacher_id = elective.teacher_id
+        hours_needed = elective.hours_per_week
+        
+        # Find subject details for room capacity
+        subject = elective.subject
+        if not subject:
+            return False
+        
+        # Calculate minimum room capacity (sum of all participating semester students)
+        min_capacity = sum(s.student_count for s in elective.participating_semesters)
+        
+        # Try to schedule the required hours
+        hours_scheduled = 0
+        scheduled_slot_strings = []
+        
+        # Get slot order (randomized)
+        slot_order = self._get_slot_order()
+        
+        for day, slot in slot_order:
+            if hours_scheduled >= hours_needed:
+                break
+            
+            # Check if teacher is free
+            if not state.is_teacher_free(teacher_id, day, slot):
+                continue
+            
+            # Check if ALL participating semesters are free
+            all_semesters_free = True
+            for sem_id in participating_semester_ids:
+                if not state.is_semester_free(sem_id, day, slot):
+                    all_semesters_free = False
+                    break
+            
+            if not all_semesters_free:
+                continue
+            
+            # Find suitable room
+            suitable_room = None
+            for room in rooms:
+                if room.capacity >= min_capacity and state.is_room_free(room.id, day, slot):
+                    suitable_room = room
+                    break
+            
+            # If no large enough room, try elective's designated room
+            if not suitable_room and elective.room_id:
+                if state.is_room_free(elective.room_id, day, slot):
+                    suitable_room = self.db.query(Room).get(elective.room_id)
+            
+            if not suitable_room:
+                continue
+            
+            # Schedule this elective slot for ALL participating semesters
+            for sem_id in participating_semester_ids:
+                entry = AllocationEntry(
+                    semester_id=sem_id,
+                    subject_id=elective.subject_id,
+                    teacher_id=teacher_id,
+                    room_id=suitable_room.id,
+                    day=day,
+                    slot=slot,
+                    is_lab_continuation=False,
+                    is_elective=True,
+                    elective_group_id=elective.id
+                )
+                state.add_allocation(entry)
+            
+            # Update teacher load
+            teacher_loads[teacher_id] = teacher_loads.get(teacher_id, 0) + 1
+            hours_scheduled += 1
+            scheduled_slot_strings.append(f"{day}:{slot}")
+        
+        # Update elective with scheduled slots
+        if hours_scheduled > 0:
+            elective.scheduled_slots = ",".join(scheduled_slot_strings)
+            return True
+        
+        return False
     
     def _build_teacher_subject_map(self) -> Dict[int, List[int]]:
         """Build mapping of subject_id -> list of qualified teacher_ids."""
@@ -280,13 +598,14 @@ class TimetableGenerator:
         
         return subject_teachers
     
-    def _build_requirements(
+    def _build_requirements_with_fixed_teachers(
         self,
         semesters: List[Semester],
         subjects: List[Subject],
-        teacher_subject_map: Dict[int, List[int]]
+        teacher_subject_map: Dict[int, List[int]],
+        fixed_assignments: Dict[Tuple[int, int], int]
     ) -> List[SlotRequirement]:
-        """Build list of scheduling requirements."""
+        """Build list of scheduling requirements WITH pre-assigned teachers."""
         requirements = []
         
         for semester in semesters:
@@ -296,6 +615,10 @@ class TimetableGenerator:
                 if not qualified_teachers:
                     continue  # Skip subjects with no qualified teachers
                 
+                # Get the fixed teacher assignment
+                key = (semester.id, subject.id)
+                assigned_teacher = fixed_assignments.get(key)
+                
                 req = SlotRequirement(
                     semester_id=semester.id,
                     subject_id=subject.id,
@@ -304,35 +627,41 @@ class TimetableGenerator:
                     weekly_hours=subject.weekly_hours,
                     qualified_teachers=qualified_teachers,
                     min_room_capacity=semester.student_count,
-                    requires_lab=subject.subject_type == SubjectType.LAB
+                    requires_lab=subject.subject_type == SubjectType.LAB,
+                    assigned_teacher_id=assigned_teacher  # FIXED TEACHER
                 )
                 requirements.append(req)
         
         return requirements
-    
+
+
     def _greedy_generate(
         self,
+        state: TimetableState,
         lab_requirements: List[SlotRequirement],
         theory_requirements: List[SlotRequirement],
         teachers: List[Teacher],
         lecture_rooms: List[Room],
         lab_rooms: List[Room],
         semesters: List[Semester],
+        teacher_loads: Dict[int, int],
+        teacher_max_loads: Dict[int, int],
+        fixed_assignments: Dict[Tuple[int, int], int],
         all_teachers: List[Teacher] = None
     ) -> Tuple[TimetableState, bool, str]:
         """
-        Greedy generation phase.
+        Greedy generation phase with FIXED teacher assignments.
         
         GOAL: Fill ALL 7 periods for each class
         - Schedule labs first (harder to place)
         - Then fill remaining slots with theory
-        - NO pre-reserved free periods
+        - USE FIXED teacher assignment (no re-selection)
+        - Skip locked elective slots
         - Free period only if no teacher/room available
-        """
-        state = TimetableState()
-        teacher_loads: Dict[int, int] = {t.id: 0 for t in teachers}
-        teacher_max_loads: Dict[int, int] = {t.id: t.max_hours_per_week for t in teachers}
         
+        IMPORTANT: The teacher for each (semester, subject) is PRE-ASSIGNED
+        and MUST NOT be changed during this phase.
+        """
         # Total slots per week per class = 7 slots * 5 days = 35 slots
         total_slots_per_class = settings.SLOTS_PER_DAY * 5
         
@@ -352,17 +681,17 @@ class TimetableGenerator:
             
             # Schedule lab sessions (2 consecutive slots each)
             while hours_scheduled < hours_needed:
-                success = self._schedule_lab_session(
+                success = self._schedule_lab_session_with_fixed_teacher(
                     state, req, lab_rooms if lab_rooms else lecture_rooms,
-                    teacher_loads, teacher_max_loads
+                    teacher_loads, teacher_max_loads, fixed_assignments
                 )
                 if success:
                     hours_scheduled += 2  # Each lab session is 2 slots
                 else:
                     # Try with lecture rooms as fallback
-                    success = self._schedule_lab_session(
+                    success = self._schedule_lab_session_with_fixed_teacher(
                         state, req, lecture_rooms + lab_rooms,
-                        teacher_loads, teacher_max_loads
+                        teacher_loads, teacher_max_loads, fixed_assignments
                     )
                     if success:
                         hours_scheduled += 2
@@ -384,9 +713,9 @@ class TimetableGenerator:
             hours_needed = req.weekly_hours
             
             while hours_scheduled < hours_needed:
-                success = self._schedule_theory_slot(
+                success = self._schedule_theory_slot_with_fixed_teacher(
                     state, req, lecture_rooms,
-                    teacher_loads, teacher_max_loads
+                    teacher_loads, teacher_max_loads, fixed_assignments
                 )
                 if success:
                     hours_scheduled += 1
@@ -406,28 +735,360 @@ class TimetableGenerator:
         for semester in semesters:
             for day in range(5):
                 for slot in range(settings.SLOTS_PER_DAY):
+                    # Skip locked elective slots
+                    if state.is_slot_locked(semester.id, day, slot):
+                        continue
+                    
                     # Check if this slot is empty for this semester
                     if not state.is_semester_free(semester.id, day, slot):
                         continue
                     
-                    # Try to fill this empty slot
-                    filled = self._fill_empty_slot(
+                    # Try to fill this empty slot (using fixed teacher assignments)
+                    filled = self._fill_empty_slot_with_fixed_teacher(
                         state, semester.id, day, slot,
                         all_requirements, lecture_rooms,
                         teacher_loads, teacher_max_loads,
-                        all_teacher_ids=all_teacher_ids  # Pass all teacher IDs
+                        fixed_assignments,
+                        all_teacher_ids=all_teacher_ids
                     )
-                    
-                    # If we couldn't fill it AND it's not the 7th period, it becomes a free period
-                    # Free periods are ONLY allowed when ALL teachers are busy
-                    # 7th period (slot 6) should NEVER be a free period - try extra hard
         
         # Validate result
+
         violations = self._count_hard_violations(state)
         if violations > 0:
             return state, False, f"Failed to satisfy all hard constraints ({violations} violations)"
         
         return state, True, "Timetable generated successfully - all possible slots filled"
+    
+    def _schedule_lab_session_with_fixed_teacher(
+        self,
+        state: TimetableState,
+        req: SlotRequirement,
+        rooms: List[Room],
+        teacher_loads: Dict[int, int],
+        teacher_max_loads: Dict[int, int],
+        fixed_assignments: Dict[Tuple[int, int], int]
+    ) -> bool:
+        """
+        Schedule a lab session (2 consecutive periods) using FIXED teacher assignment.
+        
+        ISSUE 1 FIX: Uses the pre-assigned teacher for this (semester, subject) pair.
+        Does NOT dynamically select teachers.
+        """
+        # Get the FIXED teacher for this (semester, subject)
+        key = (req.semester_id, req.subject_id)
+        fixed_teacher_id = fixed_assignments.get(key) or req.assigned_teacher_id
+        
+        if not fixed_teacher_id:
+            # Fallback: use first qualified teacher (should not happen normally)
+            if req.qualified_teachers:
+                fixed_teacher_id = req.qualified_teachers[0]
+            else:
+                return False
+        
+        # Check if fixed teacher has capacity
+        current_load = teacher_loads.get(fixed_teacher_id, 0)
+        max_load = teacher_max_loads.get(fixed_teacher_id, 20)
+        if current_load >= max_load - 1:  # Need 2 slots for lab
+            return False
+        
+        # Shuffle days for variety
+        days = list(self.days)
+        random.shuffle(days)
+        
+        for day in days:
+            # Try each valid lab slot pair (randomized for variety)
+            slot_pairs = list(self.LAB_SLOT_PAIRS)
+            random.shuffle(slot_pairs)
+            
+            for start_slot, end_slot in slot_pairs:
+                # Skip locked elective slots
+                if state.is_slot_locked(req.semester_id, day, start_slot):
+                    continue
+                if state.is_slot_locked(req.semester_id, day, end_slot):
+                    continue
+                
+                # Check both slots are free for semester
+                if not state.is_semester_free(req.semester_id, day, start_slot):
+                    continue
+                if not state.is_semester_free(req.semester_id, day, end_slot):
+                    continue
+                
+                # Check FIXED teacher is available for both slots
+                teacher_free = (
+                    state.is_teacher_free(fixed_teacher_id, day, start_slot) and
+                    state.is_teacher_free(fixed_teacher_id, day, end_slot)
+                )
+                if not teacher_free:
+                    continue
+                
+                # Find room available for both slots
+                suitable_room = None
+                for room in rooms:
+                    if room.capacity < req.min_room_capacity:
+                        continue
+                    
+                    room_free = (
+                        state.is_room_free(room.id, day, start_slot) and
+                        state.is_room_free(room.id, day, end_slot)
+                    )
+                    if room_free:
+                        suitable_room = room
+                        break
+                
+                if suitable_room is None:
+                    continue
+                
+                # Allocate both consecutive slots with FIXED teacher
+                entry1 = AllocationEntry(
+                    semester_id=req.semester_id,
+                    subject_id=req.subject_id,
+                    teacher_id=fixed_teacher_id,  # FIXED teacher
+                    room_id=suitable_room.id,
+                    day=day,
+                    slot=start_slot,
+                    is_lab_continuation=False
+                )
+                entry2 = AllocationEntry(
+                    semester_id=req.semester_id,
+                    subject_id=req.subject_id,
+                    teacher_id=fixed_teacher_id,  # SAME fixed teacher
+                    room_id=suitable_room.id,
+                    day=day,
+                    slot=end_slot,
+                    is_lab_continuation=True
+                )
+                
+                state.add_allocation(entry1)
+                state.add_allocation(entry2)
+                
+                teacher_loads[fixed_teacher_id] = teacher_loads.get(fixed_teacher_id, 0) + 2
+                return True
+        
+        return False
+    
+    def _schedule_theory_slot_with_fixed_teacher(
+        self,
+        state: TimetableState,
+        req: SlotRequirement,
+        rooms: List[Room],
+        teacher_loads: Dict[int, int],
+        teacher_max_loads: Dict[int, int],
+        fixed_assignments: Dict[Tuple[int, int], int]
+    ) -> bool:
+        """
+        Schedule a single theory slot using FIXED teacher assignment.
+        
+        ISSUE 1 FIX: Uses the pre-assigned teacher for this (semester, subject) pair.
+        Does NOT dynamically select teachers.
+        """
+        # Get the FIXED teacher for this (semester, subject)
+        key = (req.semester_id, req.subject_id)
+        fixed_teacher_id = fixed_assignments.get(key) or req.assigned_teacher_id
+        
+        if not fixed_teacher_id:
+            # Fallback: use first qualified teacher (should not happen normally)
+            if req.qualified_teachers:
+                fixed_teacher_id = req.qualified_teachers[0]
+            else:
+                return False
+        
+        # Check if fixed teacher has capacity
+        current_load = teacher_loads.get(fixed_teacher_id, 0)
+        max_load = teacher_max_loads.get(fixed_teacher_id, 20)
+        if current_load >= max_load:
+            return False
+        
+        # Get slot order with some randomization
+        slot_order = self._get_slot_order()
+        
+        for day, slot in slot_order:
+            # Skip locked elective slots
+            if state.is_slot_locked(req.semester_id, day, slot):
+                continue
+            
+            # Check semester availability
+            if not state.is_semester_free(req.semester_id, day, slot):
+                continue
+            
+            # Check FIXED teacher availability
+            if not state.is_teacher_free(fixed_teacher_id, day, slot):
+                continue
+            
+            # Find available room with sufficient capacity
+            suitable_rooms = [
+                r for r in rooms
+                if r.capacity >= req.min_room_capacity and state.is_room_free(r.id, day, slot)
+            ]
+            
+            if not suitable_rooms:
+                continue
+            
+            room = suitable_rooms[0]
+            
+            # Create allocation with FIXED teacher
+            entry = AllocationEntry(
+                semester_id=req.semester_id,
+                subject_id=req.subject_id,
+                teacher_id=fixed_teacher_id,  # FIXED teacher
+                room_id=room.id,
+                day=day,
+                slot=slot,
+                is_lab_continuation=False
+            )
+            state.add_allocation(entry)
+            teacher_loads[fixed_teacher_id] = teacher_loads.get(fixed_teacher_id, 0) + 1
+            
+            return True
+        
+        return False
+    
+    def _fill_empty_slot_with_fixed_teacher(
+        self,
+        state: TimetableState,
+        semester_id: int,
+        day: int,
+        slot: int,
+        requirements: List[SlotRequirement],
+        rooms: List[Room],
+        teacher_loads: Dict[int, int],
+        teacher_max_loads: Dict[int, int],
+        fixed_assignments: Dict[Tuple[int, int], int],
+        all_teacher_ids: List[int] = None
+    ) -> bool:
+        """
+        Try to fill an empty slot with any available subject using FIXED teacher assignments.
+        
+        ISSUE 1 FIX: Uses the pre-assigned teacher for each (semester, subject) pair.
+        Does NOT dynamically select teachers.
+        
+        Returns True if successful, False if no teacher/room available.
+        """
+        is_7th_period = (slot == 6)  # 0-indexed, so 6 = 7th period
+        
+        # Get all requirements for this semester
+        semester_reqs = [r for r in requirements if r.semester_id == semester_id]
+        
+        # Separate theory and lab requirements
+        theory_reqs = [r for r in semester_reqs if not r.requires_lab]
+        lab_reqs = [r for r in semester_reqs if r.requires_lab]
+        
+        # Shuffle for variety
+        random.shuffle(theory_reqs)
+        
+        # Try theory subjects first using FIXED teachers
+        for req in theory_reqs:
+            result = self._try_assign_fixed_teacher_to_slot(
+                state, semester_id, day, slot, req, rooms, 
+                teacher_loads, teacher_max_loads, fixed_assignments
+            )
+            if result:
+                return True
+        
+        # Try with extra flexibility
+        for req in theory_reqs:
+            result = self._try_assign_fixed_teacher_to_slot(
+                state, semester_id, day, slot, req, rooms, 
+                teacher_loads, teacher_max_loads, fixed_assignments,
+                ignore_weekly_limit=True
+            )
+            if result:
+                return True
+        
+        # Last resort: Try single-slot lab sessions
+        for req in lab_reqs:
+            result = self._try_assign_fixed_teacher_to_slot(
+                state, semester_id, day, slot, req, rooms, 
+                teacher_loads, teacher_max_loads, fixed_assignments,
+                ignore_weekly_limit=True
+            )
+            if result:
+                return True
+        
+        # For 7th period - try even harder
+        if is_7th_period:
+            for req in theory_reqs + lab_reqs:
+                result = self._try_assign_fixed_teacher_to_slot(
+                    state, semester_id, day, slot, req, rooms, 
+                    teacher_loads, teacher_max_loads, fixed_assignments,
+                    ignore_weekly_limit=True,
+                    force_assignment=True
+                )
+                if result:
+                    return True
+        
+        return False
+    
+    def _try_assign_fixed_teacher_to_slot(
+        self,
+        state: TimetableState,
+        semester_id: int,
+        day: int,
+        slot: int,
+        req: SlotRequirement,
+        rooms: List[Room],
+        teacher_loads: Dict[int, int],
+        teacher_max_loads: Dict[int, int],
+        fixed_assignments: Dict[Tuple[int, int], int],
+        ignore_weekly_limit: bool = False,
+        force_assignment: bool = False
+    ) -> bool:
+        """
+        Try to assign the FIXED teacher to a specific slot for a subject.
+        
+        ISSUE 1 FIX: Uses the pre-assigned teacher, not dynamic selection.
+        """
+        # Get the FIXED teacher for this (semester, subject)
+        key = (req.semester_id, req.subject_id)
+        fixed_teacher_id = fixed_assignments.get(key) or req.assigned_teacher_id
+        
+        if not fixed_teacher_id:
+            return False
+        
+        # Check teacher availability
+        if not state.is_teacher_free(fixed_teacher_id, day, slot):
+            return False
+        
+        current_load = teacher_loads.get(fixed_teacher_id, 0)
+        max_load = teacher_max_loads.get(fixed_teacher_id, 20)
+        
+        # Check teacher capacity
+        if force_assignment:
+            if current_load >= int(max_load * 1.5):
+                return False
+        elif ignore_weekly_limit:
+            if current_load >= int(max_load * 1.2):
+                return False
+        else:
+            if current_load >= max_load:
+                return False
+        
+        # Find available room
+        suitable_rooms = [
+            r for r in rooms
+            if r.capacity >= req.min_room_capacity and state.is_room_free(r.id, day, slot)
+        ]
+        
+        if not suitable_rooms:
+            return False
+        
+        room = suitable_rooms[0]
+        
+        # Create allocation with FIXED teacher
+        entry = AllocationEntry(
+            semester_id=semester_id,
+            subject_id=req.subject_id,
+            teacher_id=fixed_teacher_id,  # FIXED teacher
+            room_id=room.id,
+            day=day,
+            slot=slot,
+            is_lab_continuation=False
+        )
+        state.add_allocation(entry)
+        teacher_loads[fixed_teacher_id] = teacher_loads.get(fixed_teacher_id, 0) + 1
+        
+        return True
+
     
     def _fill_empty_slot(
         self,
@@ -795,17 +1456,24 @@ class TimetableGenerator:
         self,
         initial_state: TimetableState,
         teachers: List[Teacher],
+        fixed_assignments: Dict[Tuple[int, int], int],
         population_size: int = 20,
         generations: int = 50
     ) -> TimetableState:
         """
         Genetic Algorithm optimization phase.
+        
         Improves soft constraint satisfaction while maintaining hard constraints.
+        
+        IMPORTANT CONSTRAINTS (MUST NOT BE VIOLATED):
+        - NEVER change teacher assignments (fixed per semester/subject)
+        - NEVER move elective slots (locked)
+        - Only swap slots between allocations if valid
         """
         # Create initial population from variations of the initial state
         population = [initial_state]
         for _ in range(population_size - 1):
-            mutated = self._mutate_state(deepcopy(initial_state), teachers)
+            mutated = self._mutate_state_safe(deepcopy(initial_state), teachers, fixed_assignments)
             if self._count_hard_violations(mutated) == 0:
                 population.append(mutated)
             else:
@@ -831,7 +1499,7 @@ class TimetableGenerator:
             
             while len(new_population) < population_size:
                 parent = random.choice(survivors)
-                child = self._mutate_state(deepcopy(parent), teachers)
+                child = self._mutate_state_safe(deepcopy(parent), teachers, fixed_assignments)
                 
                 if self._count_hard_violations(child) == 0:
                     new_population.append(child)
@@ -882,33 +1550,75 @@ class TimetableGenerator:
         
         return max(0, score)
     
-    def _mutate_state(self, state: TimetableState, teachers: List[Teacher]) -> TimetableState:
-        """Apply random mutation to a state."""
+    def _mutate_state_safe(
+        self, 
+        state: TimetableState, 
+        teachers: List[Teacher],
+        fixed_assignments: Dict[Tuple[int, int], int]
+    ) -> TimetableState:
+        """
+        Apply random mutation to a state SAFELY.
+        
+        IMPORTANT:
+        - NEVER change teacher assignments (violates Issue 1 fix)
+        - NEVER move elective allocations (violates Issue 2 fix)
+        - Only swap SLOTS between non-elective allocations of same semester
+        """
         if not state.allocations:
             return state
         
-        # Simple mutation: swap two random allocations' teachers if valid
-        for _ in range(3):  # Try a few mutations
-            idx = random.randint(0, len(state.allocations) - 1)
-            alloc = state.allocations[idx]
+        # Get only non-elective, non-locked allocations for mutation
+        mutable_allocations = [
+            (i, a) for i, a in enumerate(state.allocations)
+            if not a.is_elective and not a.is_lab_continuation
+        ]
+        
+        if len(mutable_allocations) < 2:
+            return state
+        
+        # Try a few slot swaps (NOT teacher swaps!)
+        for _ in range(3):
+            # Pick two random non-elective allocations from the SAME semester
+            idx1, alloc1 = random.choice(mutable_allocations)
             
-            # Find other teachers who can teach this subject
-            same_subject = [
-                a for a in state.allocations
-                if a.subject_id == alloc.subject_id and a != alloc
+            same_semester_allocs = [
+                (i, a) for i, a in mutable_allocations
+                if a.semester_id == alloc1.semester_id and i != idx1
             ]
             
-            if same_subject:
-                other = random.choice(same_subject)
-                # Swap teachers
-                alloc.teacher_id, other.teacher_id = other.teacher_id, alloc.teacher_id
+            if not same_semester_allocs:
+                continue
+            
+            idx2, alloc2 = random.choice(same_semester_allocs)
+            
+            # Check if we can swap their slots (both teachers must be free at swapped times)
+            # Teacher 1 at slot 2, Teacher 2 at slot 1
+            
+            # Get fixed teachers
+            teacher1 = fixed_assignments.get((alloc1.semester_id, alloc1.subject_id), alloc1.teacher_id)
+            teacher2 = fixed_assignments.get((alloc2.semester_id, alloc2.subject_id), alloc2.teacher_id)
+            
+            # Only swap if it doesn't cause conflicts
+            # (simplified check - just swap slots if different subjects)
+            if alloc1.subject_id != alloc2.subject_id:
+                # Swap day and slot
+                alloc1.day, alloc2.day = alloc2.day, alloc1.day
+                alloc1.slot, alloc2.slot = alloc2.slot, alloc1.slot
         
-        # Rebuild lookup tables
+        # Rebuild lookup tables (preserving locked_elective_slots and fixed_teacher_assignments)
         new_state = TimetableState()
+        new_state.fixed_teacher_assignments = state.fixed_teacher_assignments.copy()
+        new_state.locked_elective_slots = state.locked_elective_slots.copy()
+        
         for alloc in state.allocations:
             new_state.add_allocation(alloc)
         
         return new_state
+    
+    def _mutate_state(self, state: TimetableState, teachers: List[Teacher]) -> TimetableState:
+        """DEPRECATED: Use _mutate_state_safe instead. This one swaps teachers which violates Issue 1 fix."""
+        # Keeping for backwards compatibility but should not be used
+        return state
     
     def _save_allocations(self, allocations: List[AllocationEntry]):
         """Save allocations to database."""
@@ -925,3 +1635,23 @@ class TimetableGenerator:
             self.db.add(db_allocation)
         
         self.db.commit()
+    
+    def _save_fixed_assignments(self, fixed_assignments: Dict[Tuple[int, int], int]):
+        """
+        Save fixed teacher assignments to database.
+        
+        This preserves the one-time teacher assignment for future reference
+        and prevents re-generation from selecting different teachers.
+        """
+        for (semester_id, subject_id), teacher_id in fixed_assignments.items():
+            assignment = ClassSubjectTeacher(
+                semester_id=semester_id,
+                subject_id=subject_id,
+                teacher_id=teacher_id,
+                assignment_reason="auto_assigned_by_generator",
+                is_locked=True
+            )
+            self.db.add(assignment)
+        
+        self.db.commit()
+
