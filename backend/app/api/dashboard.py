@@ -4,7 +4,7 @@ Provides summary statistics and quick access data.
 """
 from datetime import date
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 
 from app.db.session import get_db
@@ -61,23 +61,22 @@ def get_recent_substitutions(
     db: Session = Depends(get_db)
 ):
     """Get recent substitutions for dashboard display."""
-    recent = db.query(Substitution).order_by(
+    recent = db.query(Substitution).options(
+        selectinload(Substitution.original_teacher),
+        selectinload(Substitution.substitute_teacher),
+        selectinload(Substitution.allocation).selectinload(Allocation.subject)
+    ).order_by(
         Substitution.created_at.desc()
     ).limit(limit).all()
     
     result = []
     for sub in recent:
-        original = db.query(Teacher).filter(Teacher.id == sub.original_teacher_id).first()
-        substitute = db.query(Teacher).filter(Teacher.id == sub.substitute_teacher_id).first()
-        allocation = db.query(Allocation).filter(Allocation.id == sub.allocation_id).first()
-        subject = db.query(Subject).filter(Subject.id == allocation.subject_id).first() if allocation else None
-        
         result.append({
             "id": sub.id,
             "date": sub.substitution_date.isoformat(),
-            "original_teacher": original.name if original else "Unknown",
-            "substitute_teacher": substitute.name if substitute else "Unknown",
-            "subject": subject.name if subject else "Unknown",
+            "original_teacher": sub.original_teacher.name if sub.original_teacher else "Unknown",
+            "substitute_teacher": sub.substitute_teacher.name if sub.substitute_teacher else "Unknown",
+            "subject": sub.allocation.subject.name if sub.allocation and sub.allocation.subject else "Unknown",
             "status": sub.status.value
         })
     

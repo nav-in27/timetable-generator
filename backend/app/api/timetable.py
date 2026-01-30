@@ -140,7 +140,9 @@ def get_semester_timetable(
                     subject_name=alloc.subject.name,
                     subject_code=alloc.subject.code,
                     room_name=alloc.room.name,
-                    is_lab=alloc.subject.subject_type.value == "lab",
+                    component_type=getattr(alloc, 'component_type', None).value if hasattr(alloc, 'component_type') and alloc.component_type else "theory",
+                    is_lab=getattr(alloc, 'component_type', None) and alloc.component_type.value == "lab",
+                    is_elective=getattr(alloc, 'is_elective', False),
                     is_substituted=is_substituted,
                     substitute_teacher_name=sub_teacher_name
                 )
@@ -204,7 +206,9 @@ def get_teacher_timetable(
                     subject_name=f"{alloc.subject.name} ({alloc.semester.code})",
                     subject_code=alloc.subject.code,
                     room_name=alloc.room.name,
-                    is_lab=alloc.subject.subject_type.value == "lab",
+                    component_type=getattr(alloc, 'component_type', None).value if hasattr(alloc, 'component_type') and alloc.component_type else "theory",
+                    is_lab=getattr(alloc, 'component_type', None) and alloc.component_type.value == "lab",
+                    is_elective=getattr(alloc, 'is_elective', False),
                     is_substituted=False,
                     substitute_teacher_name=None
                 )

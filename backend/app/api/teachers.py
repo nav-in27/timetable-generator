@@ -3,11 +3,11 @@ CRUD API routes for Teachers.
 """
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
-from app.db.models import Teacher, Subject, teacher_subjects
-from app.schemas.schemas import TeacherCreate, TeacherUpdate, TeacherResponse
+from app.db.models import Teacher, Subject, teacher_subjects, ClassSubjectTeacher, Semester, ComponentType
+from app.schemas.schemas import TeacherCreate, TeacherUpdate, TeacherResponse, ClassSubjectTeacherCreate, ClassSubjectTeacherResponse
 
 router = APIRouter(prefix="/teachers", tags=["Teachers"])
 
@@ -20,7 +20,11 @@ def list_teachers(
     db: Session = Depends(get_db)
 ):
     """Get all teachers."""
-    query = db.query(Teacher)
+    query = db.query(Teacher).options(
+        selectinload(Teacher.subjects).selectinload(Subject.semesters),
+        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.semester),
+        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.subject).selectinload(Subject.semesters)
+    )
     if active_only:
         query = query.filter(Teacher.is_active == True)
     teachers = query.offset(skip).limit(limit).all()
@@ -49,6 +53,10 @@ def create_teacher(teacher_data: TeacherCreate, db: Session = Depends(get_db)):
     subject_ids = teacher_data.subject_ids
     teacher_dict = teacher_data.model_dump(exclude={"subject_ids"})
     
+    # Fix: Convert empty string email to None to avoid unique constraint violation
+    if "email" in teacher_dict and teacher_dict["email"] == "":
+        teacher_dict["email"] = None
+    
     teacher = Teacher(**teacher_dict)
     
     # Add subjects
@@ -70,6 +78,17 @@ def update_teacher(teacher_id: int, teacher_data: TeacherUpdate, db: Session = D
         raise HTTPException(status_code=404, detail="Teacher not found")
     
     update_data = teacher_data.model_dump(exclude_unset=True)
+    
+    # Fix: Convert empty string email to None
+    if "email" in update_data and update_data["email"] == "":
+        update_data["email"] = None
+        
+    # Check for duplicate email if changing email
+    if "email" in update_data and update_data["email"] is not None:
+         # simplified check: if email is being set to something that isn't None
+         existing = db.query(Teacher).filter(Teacher.email == update_data["email"]).first()
+         if existing and existing.id != teacher_id:
+             raise HTTPException(status_code=400, detail="Teacher with this email already exists")
     
     # Handle subject_ids separately
     if "subject_ids" in update_data:
@@ -94,8 +113,13 @@ def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Teacher not found")
     
     # Soft delete
-    teacher.is_active = False
-    db.commit()
+    try:
+        teacher.is_active = False
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Database error: {str(e)}")
+    
     return None
 
 
@@ -155,3 +179,76 @@ def remove_subject_from_teacher(
     db.refresh(teacher)
     
     return teacher
+@router.post("/{teacher_id}/assignments", response_model=ClassSubjectTeacherResponse)
+def add_teacher_assignment(
+    teacher_id: int,
+    assignment_data: ClassSubjectTeacherCreate,
+    db: Session = Depends(get_db)
+):
+    """Assign a teacher to a specific class (semester), subject, and component."""
+    # Verify teacher exists
+    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    
+    # Verify semester and subject exist
+    semester = db.query(Semester).filter(Semester.id == assignment_data.semester_id).first()
+    if not semester:
+        raise HTTPException(status_code=404, detail="Semester not found")
+        
+    subject = db.query(Subject).filter(Subject.id == assignment_data.subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    # Check for existing assignment (Unique constraint)
+    existing = db.query(ClassSubjectTeacher).filter(
+        ClassSubjectTeacher.semester_id == assignment_data.semester_id,
+        ClassSubjectTeacher.subject_id == assignment_data.subject_id,
+        ClassSubjectTeacher.component_type == assignment_data.component_type
+    ).first()
+    
+    if existing:
+        # Update existing assignment
+        existing.teacher_id = teacher_id
+        existing.assignment_reason = assignment_data.assignment_reason
+        existing.is_locked = assignment_data.is_locked
+        
+        # Sync qualification
+        if subject not in teacher.subjects:
+            teacher.subjects.append(subject)
+            
+        db.commit()
+        db.refresh(existing)
+        return existing
+    
+    # Create new assignment
+    db_assignment = ClassSubjectTeacher(
+        **assignment_data.model_dump()
+    )
+    db_assignment.teacher_id = teacher_id # Ensure correct teacher ID
+    
+    # Sync qualification
+    if subject not in teacher.subjects:
+        teacher.subjects.append(subject)
+    
+    db.add(db_assignment)
+    try:
+        db.commit()
+        db.refresh(db_assignment)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    return db_assignment
+
+
+@router.delete("/assignments/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_teacher_assignment(assignment_id: int, db: Session = Depends(get_db)):
+    """Remove a teacher-class-subject assignment."""
+    assignment = db.query(ClassSubjectTeacher).filter(ClassSubjectTeacher.id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    db.delete(assignment)
+    db.commit()
+    return None

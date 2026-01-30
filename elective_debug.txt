@@ -1,0 +1,101 @@
+======================================================================
+ELECTIVE ANALYSIS
+======================================================================
+
+[1] ALL SUBJECTS:
+  ID=1: AGI1252 - Fundamentals of Data Science using R (is_elective=0, type=REGULAR, basket=None)
+  ID=2: AGI1251 - Data Visualisation using Power BI (is_elective=0, type=REGULAR, basket=None)
+  ID=3: CGB1221 - Database Management System (is_elective=0, type=REGULAR, basket=None)
+  ID=5: CGA221 - Probability and Statistics  (is_elective=0, type=REGULAR, basket=None)
+  ID=6: GEA1211 - Buisness Communication (is_elective=0, type=REGULAR, basket=None)
+  ID=7: AGB1221 - Computer Networks (is_elective=0, type=REGULAR, basket=None)
+  ID=8: GEA1221 - CSD (is_elective=0, type=REGULAR, basket=None)
+  ID=9: LIB - Lib (is_elective=0, type=REGULAR, basket=None)
+  ID=10: AGB1321 - Web Appln Technology (is_elective=0, type=REGULAR, basket=None)
+  ID=11: AGB1322 - Deep Learning Techniques (is_elective=0, type=REGULAR, basket=None)
+  ID=13: AMB1321 - Internet of Things (is_elective=0, type=REGULAR, basket=None)
+  ID=16: AGB1331 - Web Appln Lab (is_elective=0, type=REGULAR, basket=None)
+  ID=17: AMB1332 - Design Project (is_elective=0, type=REGULAR, basket=None)
+  ID=18: ADB1333 - Comprehension (is_elective=0, type=REGULAR, basket=None)
+  ID=19: SPR - Sports (is_elective=0, type=REGULAR, basket=None)
+  ID=20: CT!@#$ - Code Tantra (is_elective=0, type=REGULAR, basket=None)
+  ID=23: 20AI8201 - Project Work (is_elective=0, type=REGULAR, basket=None)
+  ID=24: 20AM8202 - Internship (is_elective=0, type=REGULAR, basket=None)
+  ID=25: CGI1257 - Gen AI  (is_elective=1, type=REGULAR, basket=1)
+  ID=26: CGI1253 - Digital Marketing (is_elective=1, type=REGULAR, basket=1)
+  ID=27: CGI1252 - Buisness Analystics (is_elective=1, type=REGULAR, basket=1)
+  ID=28: CGI1351 - Microsoft Azure Fudamentals (is_elective=1, type=ELECTIVE, basket=2)
+  ID=29: CGI1352 - Adv AI and ethical (is_elective=1, type=ELECTIVE, basket=2)
+  ID=30: CGI1355 - Adv Cybersecurity (is_elective=1, type=REGULAR, basket=2)
+
+[2] ELECTIVE SUBJECTS (is_elective=1 or has basket):
+  CGI1257: Gen AI 
+  CGI1253: Digital Marketing
+  CGI1252: Buisness Analystics
+  CGI1351: Microsoft Azure Fudamentals
+  CGI1352: Adv AI and ethical
+  CGI1355: Adv Cybersecurity
+
+[3] SEMESTERS/CLASSES:
+  ID=1: AIML 2nd Year (Semester 4)
+  ID=4: AIDS 2nd Year A (Semester 4)
+  ID=5: AIDS 2ND Year B (Semester 4)
+  ID=2: AIML 3rd Year (Semester 6)
+  ID=6: AIDS 3rd Year A (Semester 6)
+  ID=7: AIDS 3rd Year B (Semester 6)
+  ID=3: AIML 4th Year (Semester 8)
+  ID=8: AIDS 4th Year (Semester 8)
+
+[4] SUBJECT-SEMESTER ASSIGNMENTS:
+  Subject AGI1252 -> AIML 2nd Year
+  Subject AGI1252 -> AIDS 2ND Year B
+  Subject AGI1252 -> AIDS 2nd Year A
+  Subject AGI1251 -> AIDS 2nd Year A
+  Subject AGI1251 -> AIML 2nd Year
+  Subject AGI1251 -> AIDS 2ND Year B
+  Subject CGB1221 -> AIDS 2nd Year A
+  Subject CGB1221 -> AIML 2nd Year
+  Subject CGB1221 -> AIDS 2ND Year B
+  Subject CGA221 -> AIDS 2nd Year A
+  Subject CGA221 -> AIML 2nd Year
+  Subject CGA221 -> AIDS 2ND Year B
+  Subject GEA1211 -> AIDS 2ND Year B
+  Subject GEA1211 -> AIDS 2nd Year A
+  Subject GEA1211 -> AIML 2nd Year
+  Subject AGB1221 -> AIDS 2nd Year A
+  Subject AGB1221 -> AIML 2nd Year
+  Subject AGB1221 -> AIDS 2ND Year B
+  Subject GEA1221 -> AIML 2nd Year
+  Subject GEA1221 -> AIDS 2nd Year A
+  Subject GEA1221 -> AIDS 2ND Year B
+  Subject LIB -> AIDS 2ND Year B
+  Subject LIB -> AIML 2nd Year
+  Subject LIB -> AIDS 2nd Year A
+  Subject AGB1321 -> AIML 3rd Year
+  Subject AGB1322 -> AIML 3rd Year
+  Subject AMB1321 -> AIML 3rd Year
+  Subject AGB1331 -> AIML 3rd Year
+  Subject AMB1332 -> AIML 3rd Year
+  Subject ADB1333 -> AIML 3rd Year
+  Subject SPR -> AIML 3rd Year
+  Subject CT!@#$ -> AIML 3rd Year
+  Subject 20AI8201 -> AIML 4th Year
+  Subject 20AM8202 -> AIML 4th Year
+  Subject CGI1257 -> AIML 2nd Year
+  Subject CGI1257 -> AIDS 2nd Year A
+  Subject CGI1257 -> AIDS 2ND Year B
+  Subject CGI1253 -> AIDS 2ND Year B
+  Subject CGI1253 -> AIML 2nd Year
+  Subject CGI1253 -> AIDS 2nd Year A
+  Subject CGI1252 -> AIML 2nd Year
+  Subject CGI1252 -> AIDS 2nd Year A
+  Subject CGI1252 -> AIDS 2ND Year B
+  Subject CGI1351 -> AIDS 3rd Year B
+  Subject CGI1351 -> AIML 3rd Year
+  Subject CGI1351 -> AIDS 3rd Year A
+  Subject CGI1352 -> AIDS 3rd Year B
+  Subject CGI1352 -> AIML 3rd Year
+  Subject CGI1352 -> AIDS 3rd Year A
+  Subject CGI1355 -> AIML 3rd Year
+  Subject CGI1355 -> AIDS 3rd Year A
+  Subject CGI1355 -> AIDS 3rd Year B

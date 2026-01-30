@@ -15,12 +15,13 @@ import {
     BookOpen,
     AlertCircle,
 } from 'lucide-react';
-import { teachersApi, subjectsApi } from '../services/api';
+import { teachersApi, subjectsApi, semestersApi } from '../services/api';
 import './CrudPage.css';
 
 export default function TeachersPage() {
     const [teachers, setTeachers] = useState([]);
     const [subjects, setSubjects] = useState([]);
+    const [semesters, setSemesters] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showModal, setShowModal] = useState(false);
@@ -43,12 +44,14 @@ export default function TeachersPage() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [teachersRes, subjectsRes] = await Promise.all([
-                teachersApi.getAll(false),
+            const [teachersRes, subjectsRes, semestersRes] = await Promise.all([
+                teachersApi.getAll(true),
                 subjectsApi.getAll(),
+                semestersApi.getAll(),
             ]);
             setTeachers(teachersRes.data);
             setSubjects(subjectsRes.data);
+            setSemesters(semestersRes.data);
         } catch (err) {
             setError('Failed to load data');
             console.error(err);
@@ -102,7 +105,8 @@ export default function TeachersPage() {
             fetchData();
             closeModal();
         } catch (err) {
-            setError('Failed to save teacher');
+            const errorMsg = err.response?.data?.detail || err.message || 'Failed to save teacher';
+            setError(errorMsg);
             console.error(err);
         }
     };
@@ -113,7 +117,8 @@ export default function TeachersPage() {
             await teachersApi.delete(id);
             fetchData();
         } catch (err) {
-            setError('Failed to delete teacher');
+            const errorMsg = err.response?.data?.detail || err.message || 'Failed to delete teacher';
+            setError(errorMsg);
             console.error(err);
         }
     };
@@ -125,6 +130,37 @@ export default function TeachersPage() {
                 ? prev.subject_ids.filter(id => id !== subjectId)
                 : [...prev.subject_ids, subjectId],
         }));
+    };
+
+    const handleAddAssignment = async (e) => {
+        e.preventDefault();
+        const assignmentData = {
+            semester_id: parseInt(e.target.semester_id.value),
+            subject_id: parseInt(e.target.subject_id.value),
+            component_type: e.target.component_type.value,
+        };
+        try {
+            await teachersApi.addAssignment(editingTeacher.id, assignmentData);
+            fetchData();
+            // Refresh editingTeacher to show new assignment
+            const updated = await teachersApi.getById(editingTeacher.id);
+            setEditingTeacher(updated.data);
+            e.target.reset();
+        } catch (err) {
+            setError(err.response?.data?.detail || 'Failed to add assignment');
+        }
+    };
+
+    const handleRemoveAssignment = async (assignmentId) => {
+        try {
+            await teachersApi.removeAssignment(assignmentId);
+            fetchData();
+            // Refresh editingTeacher
+            const updated = await teachersApi.getById(editingTeacher.id);
+            setEditingTeacher(updated.data);
+        } catch (err) {
+            setError('Failed to remove assignment');
+        }
     };
 
     if (loading) {
@@ -186,6 +222,21 @@ export default function TeachersPage() {
                                 {teacher.subjects.map(s => (
                                     <span key={s.id} className="tag">{s.code}</span>
                                 ))}
+                            </div>
+                        )}
+                        {teacher.class_assignments?.length > 0 && (
+                            <div className="crud-item-assignments" style={{ marginTop: '10px', fontSize: '0.8rem', borderTop: '1px solid #f3f4f6', paddingTop: '8px' }}>
+                                <div style={{ fontWeight: '600', marginBottom: '4px', color: '#4b5563' }}>Teaching Classes:</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {[...new Set(teacher.class_assignments.map(a => a.semester?.name))].map((name, i) => (
+                                        <span key={i} style={{
+                                            background: '#f3f4f6',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            color: '#374151'
+                                        }}>{name}</span>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -301,10 +352,85 @@ export default function TeachersPage() {
                                     Cancel
                                 </button>
                                 <button type="submit" className="btn btn-primary">
-                                    {editingTeacher ? 'Update' : 'Create'}
+                                    {editingTeacher ? 'Update Info' : 'Create Teacher'}
                                 </button>
                             </div>
                         </form>
+
+                        {editingTeacher && (
+                            <div className="teacher-assignments-section" style={{ marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1.5rem' }}>
+                                <h3>Class Assignments</h3>
+                                <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>
+                                    Assign this teacher to specific subjects in specific classes.
+                                </p>
+
+                                <div className="assignments-list" style={{ marginBottom: '1.5rem' }}>
+                                    {editingTeacher.class_assignments?.map(assignment => (
+                                        <div key={assignment.id} className="assignment-item" style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '0.75rem',
+                                            background: '#f9fafb',
+                                            borderRadius: '0.5rem',
+                                            marginBottom: '0.5rem'
+                                        }}>
+                                            <div>
+                                                <strong style={{ display: 'block' }}>{assignment.semester?.name}</strong>
+                                                <span style={{ fontSize: '0.8rem', color: '#666' }}>
+                                                    {assignment.subject?.code} - {assignment.subject?.name} ({assignment.component_type})
+                                                </span>
+                                            </div>
+                                            <button
+                                                className="btn btn-sm btn-danger"
+                                                onClick={() => handleRemoveAssignment(assignment.id)}
+                                                title="Remove Assignment"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {(!editingTeacher.class_assignments || editingTeacher.class_assignments.length === 0) && (
+                                        <p className="text-muted" style={{ textAlign: 'center', padding: '1rem' }}>No classes assigned yet.</p>
+                                    )}
+                                </div>
+
+                                <form onSubmit={handleAddAssignment} className="add-assignment-form" style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr 1fr auto',
+                                    gap: '0.5rem',
+                                    alignItems: 'end'
+                                }}>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Class</label>
+                                        <select name="semester_id" className="form-input" required>
+                                            <option value="">Select Class</option>
+                                            {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Subject</label>
+                                        <select name="subject_id" className="form-input" required>
+                                            <option value="">Select Subject</option>
+                                            {subjects.filter(s => formData.subject_ids.includes(s.id)).map(s => (
+                                                <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Type</label>
+                                        <select name="component_type" className="form-input">
+                                            <option value="theory">Theory</option>
+                                            <option value="lab">Lab</option>
+                                            <option value="tutorial">Tutorial</option>
+                                        </select>
+                                    </div>
+                                    <button type="submit" className="btn btn-primary" title="Add Assignment">
+                                        <Plus size={18} />
+                                    </button>
+                                </form>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

@@ -14,6 +14,7 @@ import {
     RefreshCw,
     Menu,
     X,
+    Layers,
 } from 'lucide-react';
 import { useState } from 'react';
 import './Sidebar.css';
@@ -22,6 +23,7 @@ const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/teachers', label: 'Teachers', icon: Users },
     { path: '/subjects', label: 'Subjects', icon: BookOpen },
+    { path: '/electives', label: 'Elective Baskets', icon: Layers },
     { path: '/semesters', label: 'Classes', icon: GraduationCap },
     { path: '/rooms', label: 'Rooms', icon: Building2 },
     { path: '/timetable', label: 'Timetable', icon: Calendar },

@@ -17,6 +17,7 @@ export default function SemestersPage() {
         name: '',
         code: '',
         year: 2,
+        semester_number: 3,
         section: 'A',
         student_count: 60,
     });
@@ -45,6 +46,7 @@ export default function SemestersPage() {
                 name: semester.name,
                 code: semester.code,
                 year: semester.year,
+                semester_number: semester.semester_number || (semester.year * 2 - 1),
                 section: semester.section,
                 student_count: semester.student_count,
             });
@@ -54,6 +56,7 @@ export default function SemestersPage() {
                 name: '',
                 code: '',
                 year: 2,
+                semester_number: 3,
                 section: 'A',
                 student_count: 60,
             });
@@ -124,6 +127,7 @@ export default function SemestersPage() {
                             <div>
                                 <h3 className="crud-item-title">{semester.name}</h3>
                                 <span className="badge badge-info">{semester.code}</span>
+                                <span className="badge badge-success" style={{ marginLeft: '8px' }}>Sem {semester.semester_number || '?'}</span>
                             </div>
                             <div className="crud-item-actions">
                                 <button className="btn btn-sm btn-secondary" onClick={() => openModal(semester)}>
@@ -206,6 +210,21 @@ export default function SemestersPage() {
                                             <option key={y} value={y}>Year {y}</option>
                                         ))}
                                     </select>
+                                </div>
+                            </div>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label className="form-label">Semester Number *</label>
+                                    <select
+                                        className="form-select"
+                                        value={formData.semester_number}
+                                        onChange={(e) => setFormData({ ...formData, semester_number: parseInt(e.target.value) })}
+                                    >
+                                        {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+                                            <option key={s} value={s}>Semester {s}</option>
+                                        ))}
+                                    </select>
+                                    <small style={{ color: '#666', fontSize: '12px' }}>This determines which semester subjects can be assigned</small>
                                 </div>
                             </div>
                             <div className="form-row">

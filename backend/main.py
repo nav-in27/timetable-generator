@@ -11,9 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
+import sys
+
+# Force UTF-8 encoding for logs
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+except AttributeError:
+    # Python < 3.7 or some environments
+    pass
 
 # Import all routers
-from app.api import rooms, subjects, teachers, semesters, timetable, substitution, dashboard
+from app.api import rooms, subjects, teachers, semesters, timetable, substitution, dashboard, elective_baskets
 
 settings = get_settings()
 
@@ -80,6 +89,7 @@ app.include_router(teachers.router, prefix="/api")
 app.include_router(semesters.router, prefix="/api")
 app.include_router(timetable.router, prefix="/api")
 app.include_router(substitution.router, prefix="/api")
+app.include_router(elective_baskets.router, prefix="/api")
 
 
 @app.get("/")

@@ -190,20 +190,27 @@ export default function TimetableGrid({ timetable, viewType = 'semester' }) {
                                                             </div>
                                                         )}
 
-                                                        {isLab && (
-                                                            <span className="slot-badge lab-badge">LAB</span>
-                                                        )}
-
-                                                        {isSubstituted && (
-                                                            <span className="slot-badge sub-badge">
-                                                                <AlertTriangle size={10} />
-                                                                SUB
-                                                            </span>
-                                                        )}
+                                                        <div className="slot-badges">
+                                                            {slot.component_type === 'lab' && (
+                                                                <span className="slot-badge lab-badge">LAB</span>
+                                                            )}
+                                                            {slot.component_type === 'tutorial' && (
+                                                                <span className="slot-badge tutorial-badge" style={{ background: '#f093fb', color: '#fff' }}>TUT</span>
+                                                            )}
+                                                            {slot.is_elective && (
+                                                                <span className="slot-badge elective-badge" style={{ background: '#f59e0b', color: '#fff' }}>ELECTIVE</span>
+                                                            )}
+                                                            {isSubstituted && (
+                                                                <span className="slot-badge sub-badge">
+                                                                    <AlertTriangle size={10} />
+                                                                    SUB
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 )}
                                                 {isEmpty && (
-                                                    <span className="empty-slot">Free</span>
+                                                    <span className="empty-slot">Free Period</span>
                                                 )}
                                             </td>
                                         );
