@@ -22,7 +22,7 @@ except AttributeError:
     pass
 
 # Import all routers
-from app.api import rooms, subjects, teachers, semesters, timetable, substitution, dashboard, elective_baskets
+from app.api import rooms, subjects, teachers, semesters, timetable, substitution, dashboard, elective_baskets, fixed_slots
 
 settings = get_settings()
 
@@ -90,6 +90,7 @@ app.include_router(semesters.router, prefix="/api")
 app.include_router(timetable.router, prefix="/api")
 app.include_router(substitution.router, prefix="/api")
 app.include_router(elective_baskets.router, prefix="/api")
+app.include_router(fixed_slots.router, prefix="/api")
 
 
 @app.get("/")
@@ -111,4 +112,25 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import os
+    import socket
+
+    def is_port_in_use(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+
+    def find_available_port(start_port: int, max_tries: int = 20) -> int:
+        port = start_port
+        for _ in range(max_tries):
+            if not is_port_in_use(port):
+                return port
+            port += 1
+        raise RuntimeError(f"No free port found starting from {start_port}")
+
+    default_port = int(os.getenv("PORT", "8000"))
+    selected_port = find_available_port(default_port)
+    if selected_port != default_port:
+        print(f"[WARN] Port {default_port} is in use. Using {selected_port} instead.")
+
+    uvicorn.run("main:app", host="127.0.0.1", port=selected_port, reload=True)

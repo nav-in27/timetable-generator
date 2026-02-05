@@ -4,7 +4,9 @@ Handles generation and viewing of timetables.
 """
 from typing import List, Optional
 from datetime import date
+from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
@@ -14,6 +16,7 @@ from app.schemas.schemas import (
     GenerationRequest, GenerationResult
 )
 from app.services.generator import TimetableGenerator
+from app.services.pdf_service import TimetablePDFService
 from app.core.config import get_settings
 
 router = APIRouter(prefix="/timetable", tags=["Timetable"])
@@ -249,3 +252,103 @@ def clear_timetable(
     db.commit()
     
     return None
+
+
+# ============================================================================
+# PDF Export Endpoints (READ-ONLY)
+# ============================================================================
+
+@router.get("/export/pdf")
+def export_timetable_pdf(
+    db: Session = Depends(get_db)
+):
+    """
+    Export all timetables as PDF.
+    READ-ONLY operation - uses existing allocation data only.
+    Does not modify or regenerate any timetable data.
+    """
+    try:
+        pdf_service = TimetablePDFService(db)
+        
+        # Check if timetables exist
+        if pdf_service.get_timetable_count() == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No timetable generated. Please generate a timetable first."
+            )
+        
+        # Generate PDF
+        pdf_bytes = pdf_service.generate_all_timetables_pdf()
+        
+        # Return as downloadable file - Institutional naming format
+        filename = f"Class_Timetable_AIDS_{date.today().year}_All.pdf"
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate PDF. Please try again."
+        )
+
+
+@router.get("/export/pdf/preview")
+def preview_timetable_pdf(
+    db: Session = Depends(get_db)
+):
+    """
+    Get PDF for preview (inline display).
+    READ-ONLY operation - uses existing allocation data only.
+    """
+    try:
+        pdf_service = TimetablePDFService(db)
+        
+        # Check if timetables exist
+        if pdf_service.get_timetable_count() == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No timetable generated. Please generate a timetable first."
+            )
+        
+        # Generate PDF
+        pdf_bytes = pdf_service.generate_all_timetables_pdf()
+        
+        # Return for inline display (not download)
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline; filename=timetable_preview.pdf"
+            }
+        )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate PDF. Please try again."
+        )
+
+
+@router.get("/export/status")
+def get_export_status(
+    db: Session = Depends(get_db)
+):
+    """
+    Check if timetable export is available.
+    Returns status indicating if PDF export is possible.
+    """
+    pdf_service = TimetablePDFService(db)
+    count = pdf_service.get_timetable_count()
+    
+    return {
+        "has_timetable": count > 0,
+        "timetable_count": count,
+        "message": "Ready for export" if count > 0 else "Please generate a timetable first"
+    }

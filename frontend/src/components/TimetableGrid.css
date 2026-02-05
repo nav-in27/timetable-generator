@@ -1,77 +1,84 @@
-/* Timetable Grid Styles */
+/* Timetable Grid Styles - Excel/ERP Style, Academic */
 .timetable-container {
     background: white;
-    border-radius: var(--radius-xl);
-    padding: 1.5rem;
-    box-shadow: var(--shadow-md);
+    border-radius: var(--radius);
+    padding: 1rem;
+    border: 1px solid var(--gray-200);
+    animation: fadeIn 300ms ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 .timetable-header-info {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--gray-100);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--gray-200);
 }
 
 .timetable-header-info h2 {
-    font-size: 1.25rem;
+    font-size: 1.125rem;
     font-weight: 600;
-    color: var(--gray-900);
+    color: var(--gray-800);
 }
 
 .timetable-grid-wrapper {
     overflow-x: auto;
-    margin: 0 -0.5rem;
-    padding: 0 0.5rem;
 }
 
+/* Table-like Grid - Thin borders, clean */
 .timetable-grid {
     width: 100%;
-    min-width: 900px;
-    border-collapse: separate;
-    border-spacing: 4px;
+    min-width: 800px;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
 }
 
 .timetable-grid th,
 .timetable-grid td {
-    padding: 0;
+    border: 1px solid var(--gray-200);
     vertical-align: top;
 }
 
+/* Time Header Column */
 .time-header {
-    width: 100px;
-    padding: 0.75rem 0.5rem !important;
+    width: 90px;
+    padding: 0.625rem 0.5rem;
     text-align: center;
     background: var(--gray-100);
-    border-radius: var(--radius);
     font-size: 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375rem;
     color: var(--gray-600);
+    font-weight: 500;
 }
 
+/* Day Header Row */
 .day-header {
-    padding: 0.875rem 0.5rem !important;
+    padding: 0.625rem 0.5rem;
     text-align: center;
-    background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-600) 100%);
+    background: var(--primary-800);
     color: white;
     font-weight: 600;
-    font-size: 0.875rem;
-    border-radius: var(--radius);
+    font-size: 0.8125rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.03em;
 }
 
+/* Time Cell */
 .time-cell {
-    padding: 0.5rem !important;
+    padding: 0.5rem;
     text-align: center;
     background: var(--gray-50);
-    border-radius: var(--radius);
-    min-width: 90px;
+    min-width: 80px;
 }
 
 .slot-number {
@@ -80,68 +87,62 @@
     font-weight: 600;
     color: var(--gray-500);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
 }
 
 .slot-time {
     display: block;
-    font-size: 0.75rem;
-    color: var(--gray-600);
+    font-size: 0.6875rem;
+    color: var(--gray-500);
     margin-top: 0.125rem;
 }
 
+/* Slot Cell - Academic color coding */
 .slot-cell {
-    min-height: 90px;
-    background: var(--gray-50);
-    border-radius: var(--radius);
-    padding: 0.5rem !important;
-    border-left: 4px solid transparent;
-    transition: all var(--transition-fast);
+    min-height: 80px;
+    background: white;
+    padding: 0.5rem;
     position: relative;
 }
 
-.slot-cell:not(.empty) {
-    background: white;
-    box-shadow: var(--shadow-sm);
-}
-
 .slot-cell:not(.empty):hover {
-    box-shadow: var(--shadow);
-    transform: scale(1.02);
-    z-index: 10;
-}
-
-.slot-cell.lab {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(168, 85, 247, 0.04) 100%);
-}
-
-.slot-cell.substituted {
-    background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
-    border-left-color: var(--warning) !important;
-    animation: pulse-warning 2s infinite;
-}
-
-@keyframes pulse-warning {
-
-    0%,
-    100% {
-        box-shadow: var(--shadow-sm);
-    }
-
-    50% {
-        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-    }
-}
-
-/* Break and Lunch Row Styles */
-.break-row,
-.lunch-row {
     background: var(--gray-50);
 }
 
+/* Theory - Light Blue */
+.slot-cell.theory {
+    background: var(--theory-bg);
+    border-left: 3px solid var(--theory-border);
+}
+
+/* Lab - Light Green */
+.slot-cell.lab {
+    background: var(--lab-bg);
+    border-left: 3px solid var(--lab-border);
+}
+
+/* Elective - Light Orange */
+.slot-cell.elective {
+    background: var(--elective-bg);
+    border-left: 3px solid var(--elective-border);
+}
+
+/* Tutorial - Light Purple */
+.slot-cell.tutorial {
+    background: var(--tutorial-bg);
+    border-left: 3px solid var(--tutorial-border);
+}
+
+/* Substituted - Subtle warning */
+.slot-cell.substituted {
+    background: #fffbeb;
+    border-left: 3px solid var(--warning);
+}
+
+/* Break and Lunch Row Styles */
 .break-row td,
 .lunch-row td {
-    padding: 0.5rem !important;
+    padding: 0.5rem;
+    background: var(--gray-50);
 }
 
 .break-cell,
@@ -149,23 +150,18 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
-    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%) !important;
-    border-radius: var(--radius);
-    min-width: 90px;
+    gap: 0.125rem;
+    padding: 0.5rem;
+    min-width: 80px;
 }
 
 .break-cell svg,
 .lunch-cell svg {
-    color: #16a34a;
-}
-
-.lunch-cell {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+    color: var(--secondary-600);
 }
 
 .lunch-cell svg {
-    color: #d97706;
+    color: var(--warning);
 }
 
 .break-content,
@@ -173,36 +169,32 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-    border-radius: var(--radius);
-    color: #16a34a;
-    font-weight: 600;
-    font-size: 0.875rem;
+    gap: 0.375rem;
+    color: var(--secondary-700);
+    font-weight: 500;
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
 }
 
 .lunch-content {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    color: #d97706;
+    color: var(--warning);
 }
 
+/* Slot Content */
 .slot-content {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
-    height: 100%;
+    gap: 0.25rem;
 }
 
 .slot-subject {
     display: flex;
     align-items: flex-start;
-    gap: 0.375rem;
+    gap: 0.25rem;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--gray-900);
-    flex-wrap: wrap;
+    color: var(--gray-800);
+    line-height: 1.3;
 }
 
 .slot-subject svg {
@@ -216,8 +208,10 @@
     font-weight: 500;
     color: var(--gray-500);
     background: var(--gray-100);
-    padding: 0.125rem 0.375rem;
-    border-radius: var(--radius-sm);
+    padding: 0.0625rem 0.25rem;
+    border-radius: 2px;
+    display: inline-block;
+    margin-top: 0.125rem;
 }
 
 .slot-teacher,
@@ -242,141 +236,153 @@
 
 .substitute-teacher {
     color: var(--warning);
-    font-weight: 600;
+    font-weight: 500;
 }
 
+/* Slot Badges - Small, subtle */
 .slot-badges {
     margin-top: auto;
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 3px;
+    padding-top: 0.25rem;
 }
 
 .slot-badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    font-size: 0.625rem;
+    gap: 0.125rem;
+    font-size: 0.5625rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.125rem 0.375rem;
-    border-radius: var(--radius-sm);
-    width: fit-content;
+    letter-spacing: 0.03em;
+    padding: 0.0625rem 0.25rem;
+    border-radius: 2px;
 }
 
 .lab-badge {
-    background: #ede9fe;
-    color: #7c3aed;
+    background: var(--lab-bg);
+    color: #2e7d32;
+    border: 1px solid var(--lab-border);
 }
 
 .sub-badge {
-    background: #fef3c7;
-    color: #b45309;
+    background: #fffbeb;
+    color: #92400e;
+    border: 1px solid var(--elective-border);
 }
 
 .tutorial-badge {
-    background: #fdf4ff;
-    color: #d946ef;
+    background: var(--tutorial-bg);
+    color: #7b1fa2;
+    border: 1px solid var(--tutorial-border);
 }
 
 .elective-badge {
-    background: #fffbeb;
-    color: #d97706;
+    background: var(--elective-bg);
+    color: #e65100;
+    border: 1px solid var(--elective-border);
 }
 
+/* Empty Slot - Minimal */
 .empty-slot {
     display: flex;
     align-items: center;
     justify-content: center;
     height: 100%;
-    min-height: 70px;
+    min-height: 60px;
     color: var(--gray-400);
     font-size: 0.75rem;
-    font-style: italic;
 }
 
-/* ERROR STATE: Unscheduled slots are academically INVALID */
+/* Free Period */
+.slot-cell.free {
+    background: var(--free-bg);
+}
+
 .empty-slot-error {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100%;
-    min-height: 70px;
-    color: #dc2626;
+    min-height: 60px;
+    color: var(--error);
     font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    gap: 0.25rem;
-    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    font-weight: 500;
+    gap: 0.125rem;
+    background: #fef2f2;
+    border: 1px dashed #fca5a5;
+    margin: 0.25rem;
     border-radius: var(--radius-sm);
-    border: 1px dashed #ef4444;
-    animation: pulse-error 2s infinite;
 }
 
 .empty-slot-error svg {
-    color: #ef4444;
+    color: var(--error);
 }
 
-@keyframes pulse-error {
-
-    0%,
-    100% {
-        box-shadow: none;
-    }
-
-    50% {
-        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
-    }
-}
-
+/* Legend - Simple */
 .timetable-legend {
     display: flex;
-    gap: 1.5rem;
-    margin-top: 1.5rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--gray-100);
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--gray-200);
+    font-size: 0.75rem;
 }
 
 .legend-item {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
+    gap: 0.375rem;
     color: var(--gray-600);
 }
 
 .legend-color {
-    width: 16px;
-    height: 16px;
-    border-radius: var(--radius-sm);
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+}
+
+.theory-color {
+    background: var(--theory-bg);
+    border: 1px solid var(--theory-border);
 }
 
 .lab-color {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.3) 0%, rgba(168, 85, 247, 0.1) 100%);
-    border: 2px solid #a855f7;
+    background: var(--lab-bg);
+    border: 1px solid var(--lab-border);
+}
+
+.elective-color {
+    background: var(--elective-bg);
+    border: 1px solid var(--elective-border);
 }
 
 .sub-color {
-    background: linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(245, 158, 11, 0.1) 100%);
-    border: 2px solid var(--warning);
+    background: #fffbeb;
+    border: 1px solid var(--warning);
+}
+
+.free-color {
+    background: var(--free-bg);
+    border: 1px solid var(--free-border);
 }
 
 /* Responsive */
 @media (max-width: 768px) {
     .timetable-container {
-        padding: 1rem;
+        padding: 0.75rem;
     }
 
     .timetable-grid {
-        min-width: 800px;
+        min-width: 700px;
     }
 
     .slot-cell {
-        min-height: 80px;
-        padding: 0.375rem !important;
+        min-height: 70px;
+        padding: 0.375rem;
     }
 
     .slot-subject {
@@ -387,4 +393,300 @@
     .slot-room {
         font-size: 0.6875rem;
     }
+}
+
+/* ============================================================
+   LOCKED SLOTS - Manual Slot Locking Feature
+   ============================================================ */
+
+/* Locked slot indicator */
+.slot-cell.locked {
+    position: relative;
+}
+
+.slot-cell.locked::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f59e0b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2' ry='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") no-repeat center;
+    background-size: contain;
+    z-index: 10;
+}
+
+.locked-badge {
+    background: #fef3c7;
+    color: #d97706;
+    border: 1px solid #fbbf24;
+}
+
+/* Empty slot - clickable for locking */
+.slot-cell.empty.lockable {
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.slot-cell.empty.lockable:hover {
+    background: #f0f9ff;
+    border: 2px dashed var(--primary-400);
+}
+
+.slot-cell.empty.lockable:hover .empty-slot {
+    color: var(--primary-600);
+}
+
+.slot-cell.empty.lockable .empty-slot::after {
+    content: '';
+    display: block;
+    width: 14px;
+    height: 14px;
+    margin-left: 4px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E") no-repeat center;
+    background-size: contain;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.slot-cell.empty.lockable:hover .empty-slot::after {
+    opacity: 1;
+}
+
+/* Lock Slot Modal */
+.lock-slot-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 150ms ease-out;
+}
+
+.lock-slot-modal {
+    background: white;
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    animation: slideIn 200ms ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.lock-slot-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.lock-slot-modal-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--gray-800);
+}
+
+.lock-slot-modal-header h3 svg {
+    color: var(--warning);
+}
+
+.lock-slot-modal-close {
+    background: none;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: var(--gray-400);
+    border-radius: var(--radius);
+    transition: all 0.15s;
+}
+
+.lock-slot-modal-close:hover {
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+.lock-slot-modal-body {
+    padding: 1.25rem;
+}
+
+.lock-slot-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--gray-50);
+    border-radius: var(--radius);
+}
+
+.lock-slot-info-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--gray-600);
+}
+
+.lock-slot-info-item strong {
+    color: var(--gray-800);
+}
+
+.lock-slot-form-group {
+    margin-bottom: 1rem;
+}
+
+.lock-slot-form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--gray-700);
+    margin-bottom: 0.375rem;
+}
+
+.lock-slot-form-group select,
+.lock-slot-form-group textarea {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    color: var(--gray-800);
+    background: white;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.lock-slot-form-group select:focus,
+.lock-slot-form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.lock-slot-validation {
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    margin-bottom: 1rem;
+    font-size: 0.8125rem;
+}
+
+.lock-slot-validation.errors {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+}
+
+.lock-slot-validation.warnings {
+    background: #fffbeb;
+    border: 1px solid #fed7aa;
+    color: #92400e;
+}
+
+.lock-slot-validation ul {
+    margin: 0.25rem 0 0 1rem;
+    padding: 0;
+}
+
+.lock-slot-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--gray-200);
+    background: var(--gray-50);
+}
+
+.lock-slot-modal-footer button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.lock-slot-cancel-btn {
+    background: white;
+    border: 1px solid var(--gray-300);
+    color: var(--gray-700);
+}
+
+.lock-slot-cancel-btn:hover {
+    background: var(--gray-50);
+}
+
+.lock-slot-confirm-btn {
+    background: var(--warning);
+    border: 1px solid var(--warning);
+    color: white;
+}
+
+.lock-slot-confirm-btn:hover {
+    background: #d97706;
+}
+
+.lock-slot-confirm-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Unlock button on locked slots */
+.slot-unlock-btn {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    padding: 2px 6px;
+    font-size: 0.625rem;
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.slot-cell.locked:hover .slot-unlock-btn {
+    opacity: 1;
+}
+
+.slot-unlock-btn:hover {
+    background: #fee2e2;
+}
+
+/* Lock slot legend */
+.locked-color {
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    position: relative;
+}
+
+.locked-color::after {
+    content: '🔒';
+    font-size: 0.5rem;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
 }

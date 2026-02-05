@@ -143,27 +143,33 @@ export default function TimetableGrid({ timetable, viewType = 'semester' }) {
                                     {timetable.days.map((day, dayIdx) => {
                                         const slot = getSlotData(day, periodIdx);
                                         const isEmpty = !slot || !slot.subject_name;
-                                        const isLab = slot?.is_lab;
+                                        const isLab = slot?.is_lab || slot?.component_type === 'lab';
+                                        const isTutorial = slot?.component_type === 'tutorial';
+                                        const isElective = slot?.is_elective;
                                         const isSubstituted = slot?.is_substituted;
+
+                                        // Determine cell type class for color coding
+                                        let typeClass = '';
+                                        if (isEmpty) typeClass = 'free';
+                                        else if (isLab) typeClass = 'lab';
+                                        else if (isTutorial) typeClass = 'tutorial';
+                                        else if (isElective) typeClass = 'elective';
+                                        else typeClass = 'theory';
 
                                         return (
                                             <td
                                                 key={dayIdx}
-                                                className={`slot-cell ${isEmpty ? 'empty' : ''} ${isLab ? 'lab' : ''} ${isSubstituted ? 'substituted' : ''}`}
-                                                style={!isEmpty ? {
-                                                    '--slot-color': getSubjectColor(slot.subject_code),
-                                                    borderLeftColor: getSubjectColor(slot.subject_code)
-                                                } : {}}
+                                                className={`slot-cell ${typeClass} ${isSubstituted ? 'substituted' : ''}`}
                                             >
                                                 {!isEmpty && (
                                                     <div className="slot-content">
                                                         <div className="slot-subject">
                                                             <BookOpen size={14} />
                                                             <span>{slot.subject_name}</span>
-                                                            {slot.subject_code && (
-                                                                <span className="slot-code">{slot.subject_code}</span>
-                                                            )}
                                                         </div>
+                                                        {slot.subject_code && (
+                                                            <span className="slot-code">{slot.subject_code}</span>
+                                                        )}
 
                                                         {viewType === 'semester' && slot.teacher_name && (
                                                             <div className="slot-teacher">
@@ -191,14 +197,14 @@ export default function TimetableGrid({ timetable, viewType = 'semester' }) {
                                                         )}
 
                                                         <div className="slot-badges">
-                                                            {slot.component_type === 'lab' && (
+                                                            {isLab && (
                                                                 <span className="slot-badge lab-badge">LAB</span>
                                                             )}
-                                                            {slot.component_type === 'tutorial' && (
-                                                                <span className="slot-badge tutorial-badge" style={{ background: '#f093fb', color: '#fff' }}>TUT</span>
+                                                            {isTutorial && (
+                                                                <span className="slot-badge tutorial-badge">TUT</span>
                                                             )}
-                                                            {slot.is_elective && (
-                                                                <span className="slot-badge elective-badge" style={{ background: '#f59e0b', color: '#fff' }}>ELECTIVE</span>
+                                                            {isElective && (
+                                                                <span className="slot-badge elective-badge">ELECTIVE</span>
                                                             )}
                                                             {isSubstituted && (
                                                                 <span className="slot-badge sub-badge">
@@ -224,20 +230,24 @@ export default function TimetableGrid({ timetable, viewType = 'semester' }) {
 
             <div className="timetable-legend">
                 <div className="legend-item">
+                    <span className="legend-color theory-color"></span>
+                    <span>Theory</span>
+                </div>
+                <div className="legend-item">
                     <span className="legend-color lab-color"></span>
-                    <span>Lab Session</span>
+                    <span>Lab</span>
+                </div>
+                <div className="legend-item">
+                    <span className="legend-color elective-color"></span>
+                    <span>Elective</span>
+                </div>
+                <div className="legend-item">
+                    <span className="legend-color free-color"></span>
+                    <span>Free Period</span>
                 </div>
                 <div className="legend-item">
                     <span className="legend-color sub-color"></span>
-                    <span>Substituted Class</span>
-                </div>
-                <div className="legend-item">
-                    <Coffee size={14} />
-                    <span>Break (15 min)</span>
-                </div>
-                <div className="legend-item">
-                    <UtensilsCrossed size={14} />
-                    <span>Lunch (1 hour)</span>
+                    <span>Substituted</span>
                 </div>
             </div>
         </div>

@@ -1,0 +1,10 @@
+﻿python : Traceback (most recent call last):
+At line:1 char:1
++ python test_electives.py 2>&1 | Out-File -FilePath test_electives_out ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : Not    Specified: (Traceback (most r    ecent call last)::String) [],     RemoteException
+    + FullyQualifiedErrorId : Nat    iveCommandError
+ 
+  File "C:\Users\navee\.gemini\antigravity\scratch\timetable_generator\test_electives.py", line 2, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'

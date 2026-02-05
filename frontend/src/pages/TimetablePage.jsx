@@ -1,11 +1,13 @@
 /**
  * Timetable View Page
  * View timetables by class or teacher
+ * Includes PDF Preview and Download functionality
  */
 import { useEffect, useState } from 'react';
-import { Calendar, User, GraduationCap, AlertCircle } from 'lucide-react';
+import { Calendar, User, GraduationCap, AlertCircle, FileText, Download, Eye } from 'lucide-react';
 import { timetableApi, semestersApi, teachersApi } from '../services/api';
 import TimetableGrid from '../components/TimetableGrid';
+import PDFPreviewModal from '../components/PDFPreviewModal';
 import './TimetablePage.css';
 
 export default function TimetablePage() {
@@ -18,8 +20,14 @@ export default function TimetablePage() {
     const [error, setError] = useState(null);
     const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
 
+    // PDF Export State
+    const [exportStatus, setExportStatus] = useState({ has_timetable: false, timetable_count: 0 });
+    const [showPreview, setShowPreview] = useState(false);
+    const [pdfLoading, setPdfLoading] = useState(false);
+
     useEffect(() => {
         fetchOptions();
+        checkExportStatus();
     }, []);
 
     useEffect(() => {
@@ -47,6 +55,15 @@ export default function TimetablePage() {
         }
     };
 
+    const checkExportStatus = async () => {
+        try {
+            const res = await timetableApi.getExportStatus();
+            setExportStatus(res.data);
+        } catch (err) {
+            console.error('Failed to check export status:', err);
+        }
+    };
+
     const fetchTimetable = async () => {
         setLoading(true);
         setError(null);
@@ -55,6 +72,8 @@ export default function TimetablePage() {
                 ? await timetableApi.getBySemester(selectedId, viewDate)
                 : await timetableApi.getByTeacher(selectedId, viewDate);
             setTimetable(res.data);
+            // Refresh export status when timetable changes
+            checkExportStatus();
         } catch (err) {
             if (err.response?.status === 404) {
                 setTimetable(null);
@@ -80,12 +99,49 @@ export default function TimetablePage() {
         }
     };
 
+    const handlePreviewPDF = () => {
+        if (!exportStatus.has_timetable) {
+            setError('Please generate a timetable first.');
+            return;
+        }
+        setShowPreview(true);
+    };
+
+    const handleDownloadPDF = () => {
+        if (!exportStatus.has_timetable) {
+            setError('Please generate a timetable first.');
+            return;
+        }
+        // Direct download - opens in new window to trigger download
+        window.open(timetableApi.getDownloadUrl(), '_blank');
+    };
+
     return (
         <div className="timetable-page">
             <div className="page-header">
                 <div>
                     <h1>Timetable View</h1>
                     <p>View schedules by class or teacher</p>
+                </div>
+                <div className="page-header-actions">
+                    <button
+                        className="btn btn-secondary"
+                        onClick={handlePreviewPDF}
+                        disabled={!exportStatus.has_timetable}
+                        title={exportStatus.has_timetable ? 'Preview all timetables as PDF' : 'Generate a timetable first'}
+                    >
+                        <Eye size={16} />
+                        Preview PDF
+                    </button>
+                    <button
+                        className="btn btn-primary"
+                        onClick={handleDownloadPDF}
+                        disabled={!exportStatus.has_timetable}
+                        title={exportStatus.has_timetable ? 'Download all timetables as PDF' : 'Generate a timetable first'}
+                    >
+                        <Download size={16} />
+                        Download PDF
+                    </button>
                 </div>
             </div>
 
@@ -182,6 +238,14 @@ export default function TimetablePage() {
                     <p>Choose from the dropdown above to view the timetable.</p>
                 </div>
             )}
+
+            {/* PDF Preview Modal */}
+            <PDFPreviewModal
+                isOpen={showPreview}
+                onClose={() => setShowPreview(false)}
+                previewUrl={timetableApi.getPreviewUrl()}
+                downloadUrl={timetableApi.getDownloadUrl()}
+            />
         </div>
     );
 }

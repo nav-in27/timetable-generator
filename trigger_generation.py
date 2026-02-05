@@ -19,7 +19,8 @@ def trigger():
             # print(json.dumps(result, indent=2)) 
             # Output might be large, just print summary
             print(result.get("message", "No message"))
-            print(f"Allocations: {len(result.get('allocations', []))}")
+            print(f"Total Allocations: {result.get('total_allocations', 0)}")
+            print(f"Generation Time: {result.get('generation_time_seconds', 0)}s")
             
     except urllib.error.HTTPError as e:
         print(f"HTTP Error {e.code}: {e.reason}")

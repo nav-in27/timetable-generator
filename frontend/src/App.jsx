@@ -11,6 +11,7 @@ import SubjectsPage from './pages/SubjectsPage';
 import SemestersPage from './pages/SemestersPage';
 import RoomsPage from './pages/RoomsPage';
 import TimetablePage from './pages/TimetablePage';
+import ManageTimetablePage from './pages/ManageTimetablePage';
 import ElectivesPage from './pages/ElectivesPage';
 import GeneratePage from './pages/GeneratePage';
 import SubstitutionPage from './pages/SubstitutionPage';
@@ -30,6 +31,7 @@ function App() {
               <Route path="/semesters" element={<SemestersPage />} />
               <Route path="/rooms" element={<RoomsPage />} />
               <Route path="/timetable" element={<TimetablePage />} />
+              <Route path="/manage-timetable" element={<ManageTimetablePage />} />
               <Route path="/generate" element={<GeneratePage />} />
               <Route path="/substitution" element={<SubstitutionPage />} />
             </Routes>
@@ -41,3 +43,4 @@ function App() {
 }
 
 export default App;
+

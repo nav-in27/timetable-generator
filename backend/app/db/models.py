@@ -441,6 +441,8 @@ class ClassSubjectTeacher(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+
+
 # ============================================================================
 # ELECTIVE BASKET MODEL (Correct Academic Structure)
 # ============================================================================
@@ -537,6 +539,76 @@ class ElectiveGroup(Base):
     room: Mapped[Optional["Room"]] = relationship()
     participating_semesters: Mapped[List["Semester"]] = relationship(
         secondary=elective_group_semesters
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ============================================================================
+# FIXED SLOT MODEL (MANUAL SLOT LOCKING BEFORE GENERATION)
+# ============================================================================
+
+class FixedSlot(Base):
+    """
+    Pre-fixed/locked slot for manual scheduling BEFORE timetable generation.
+    
+    CRITICAL RULES:
+    1. Fixed slots are created BEFORE generation
+    2. Fixed slots are IMMUTABLE during generation
+    3. Generator treats fixed slots as OCCUPIED and NEVER changes them
+    4. Fixed slots are stored SEPARATELY from allocations
+    5. Clearing timetable does NOT clear fixed slots (unless explicitly requested)
+    
+    User Flow:
+    1. Admin/Teacher clicks on empty timetable cell
+    2. Selects subject + teacher from filtered dropdowns
+    3. Slot is validated (teacher free, subject assignment exists, not break/lunch)
+    4. Slot is locked and marked with lock indicator
+    5. Generator respects this locked slot during generation
+    """
+    __tablename__ = "fixed_slots"
+    
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    
+    # Location in timetable
+    semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id", ondelete="CASCADE"))
+    day: Mapped[int] = mapped_column(Integer)  # 0-4 = Monday-Friday
+    slot: Mapped[int] = mapped_column(Integer)  # 0-6 = 7 periods
+    
+    # What is scheduled
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"))
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"))
+    room_id: Mapped[Optional[int]] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True)
+    
+    # Component type (theory/lab/tutorial)
+    component_type: Mapped[ComponentType] = mapped_column(
+        SQLEnum(ComponentType), default=ComponentType.THEORY
+    )
+    
+    # For lab blocks that span 2 periods
+    is_lab_continuation: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Elective tracking
+    is_elective: Mapped[bool] = mapped_column(Boolean, default=False)
+    elective_basket_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("elective_baskets.id", ondelete="SET NULL"), nullable=True
+    )
+    
+    # Lock metadata
+    locked: Mapped[bool] = mapped_column(Boolean, default=True)  # Always true for fixed slots
+    locked_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # "admin" or teacher name
+    lock_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Relationships
+    semester: Mapped["Semester"] = relationship()
+    subject: Mapped["Subject"] = relationship()
+    teacher: Mapped["Teacher"] = relationship()
+    room: Mapped[Optional["Room"]] = relationship()
+    
+    # Unique constraint: Only one fixed slot per (semester, day, slot)
+    __table_args__ = (
+        UniqueConstraint("semester_id", "day", "slot", name="uq_fixed_slot_position"),
     )
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

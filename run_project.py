@@ -13,6 +13,7 @@ import signal
 import threading
 import webbrowser
 import platform
+import socket
 
 # Project directories
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -43,19 +44,41 @@ def check_requirements():
     """Check if required dependencies are available."""
     print("[INFO] Checking requirements...")
     
-    # Check Python packages
-    try:
-        import uvicorn
-        import fastapi
-        print("   [OK] Backend dependencies found")
-    except ImportError:
-        print("   [WARN] Backend dependencies missing. Installing...")
+    # Check Python packages (minimal sanity + known backend deps)
+    backend_modules = [
+        "uvicorn",
+        "fastapi",
+        "sqlalchemy",
+        "psycopg2",
+        "pydantic",
+        "pydantic_settings",
+        "dotenv",
+        "alembic",
+        "multipart",
+        "reportlab",
+    ]
+    missing_backend = []
+    for module_name in backend_modules:
+        try:
+            # Handle naming difference for python-multipart
+            if module_name == "multipart":
+                import multipart
+            else:
+                __import__(module_name)
+        except ImportError:
+            missing_backend.append(module_name)
+
+    if missing_backend:
+        print(f"   [WARN] Missing backend deps: {', '.join(missing_backend)}")
+        print("   [WARN] Installing backend dependencies...")
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
             cwd=BACKEND_DIR,
             check=True
         )
         print("   [OK] Backend dependencies installed")
+    else:
+        print("   [OK] Backend dependencies found")
     
     # Check if node_modules exists for frontend
     node_modules_path = os.path.join(FRONTEND_DIR, "node_modules")
@@ -74,11 +97,34 @@ def check_requirements():
     print()
 
 
-def start_backend():
-    """Start the FastAPI backend server."""
+def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+    """Return True if the given TCP port can be bound to (is truly available)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, port))
+            return True
+    except Exception:
+        return False
+
+
+def find_available_port(start_port: int, max_tries: int = 50) -> int:
+    """
+    Find an available TCP port starting from start_port.
+    Tries up to `max_tries` consecutive ports.
+    """
+    host = "127.0.0.1"
+    for port in range(start_port, start_port + max_tries):
+        if is_port_available(port, host):
+            return port
+    raise RuntimeError(f"No free port found starting from {start_port} (checked {max_tries} ports)")
+
+
+def start_backend(port: int):
+    """Start the FastAPI backend server on the given port."""
     global backend_process
-    print(f"[START] Starting Backend Server on http://localhost:{BACKEND_PORT}")
-    print(f"   API Docs: http://localhost:{BACKEND_PORT}/docs")
+    print(f"[START] Starting Backend Server on http://localhost:{port}")
+    print(f"   API Docs: http://localhost:{port}/docs")
     
     # Use CREATE_NEW_PROCESS_GROUP on Windows for better signal handling
     creation_flags = 0
@@ -86,7 +132,7 @@ def start_backend():
         creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
     
     backend_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", str(BACKEND_PORT), "--reload"],
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port), "--reload"],
         cwd=BACKEND_DIR,
         creationflags=creation_flags
     )
@@ -94,21 +140,28 @@ def start_backend():
     return backend_process
 
 
-def start_frontend():
-    """Start the Vite React frontend server."""
+def start_frontend(port: int, api_base_url: str):
+    """Start the Vite React frontend server, pointing it at the given API base URL."""
     global frontend_process
-    print(f"[START] Starting Frontend Server on http://localhost:{FRONTEND_PORT}")
+    print(f"[START] Starting Frontend Server on http://localhost:{port}")
+    print(f"   Using API base URL: {api_base_url}")
     
     # Use CREATE_NEW_PROCESS_GROUP on Windows for better signal handling
     creation_flags = 0
     if IS_WINDOWS:
         creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+
+    env = os.environ.copy()
+    env["VITE_API_URL"] = api_base_url
     
+    # On Windows, we should pass "npm.cmd" if not using shell=True, 
+    # but here shell=True is used which should handle it.
     frontend_process = subprocess.Popen(
-        ["npm", "run", "dev"],
+        ["npm", "run", "dev", "--", "--port", str(port)],
         cwd=FRONTEND_DIR,
         shell=True,
-        creationflags=creation_flags
+        creationflags=creation_flags,
+        env=env
     )
     
     return frontend_process
@@ -118,31 +171,35 @@ def cleanup(signum=None, frame=None):
     """Clean up processes on exit."""
     print("\n\n[STOP] Shutting down servers...")
     
-    if backend_process:
+    def kill_process_tree(proc):
+        if not proc:
+            return
         try:
             if IS_WINDOWS:
-                backend_process.terminate()
+                # Use taskkill to kill the process and all its children (/T)
+                # /F is force, /T is tree
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], 
+                               capture_output=True, check=False)
             else:
-                backend_process.terminate()
-            backend_process.wait(timeout=5)
-            print("   [OK] Backend server stopped")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
         except Exception as e:
-            backend_process.kill()
-            print(f"   [WARN] Backend server force killed: {e}")
+            print(f"   [WARN] Error killing process {proc.pid}: {e}")
+
+    if backend_process:
+        kill_process_tree(backend_process)
+        print("   [OK] Backend server stopped")
     
     if frontend_process:
-        try:
-            if IS_WINDOWS:
-                frontend_process.terminate()
-            else:
-                frontend_process.terminate()
-            frontend_process.wait(timeout=5)
-            print("   [OK] Frontend server stopped")
-        except Exception as e:
-            frontend_process.kill()
-            print(f"   [WARN] Frontend server force killed: {e}")
+        kill_process_tree(frontend_process)
+        print("   [OK] Frontend server stopped")
     
     print("\n[EXIT] Goodbye!\n")
+    # Small delay for port release
+    time.sleep(1)
     sys.exit(0)
 
 
@@ -152,8 +209,8 @@ def main():
     
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, cleanup)
-    # SIGTERM is not available on Windows, use SIGBREAK instead
     if IS_WINDOWS:
+        # SIGBREAK is useful on Windows for CTRL+C / CTRL+BREAK
         signal.signal(signal.SIGBREAK, cleanup)
     else:
         signal.signal(signal.SIGTERM, cleanup)
@@ -163,22 +220,35 @@ def main():
         check_requirements()
         
         # Start servers
-        start_backend()
+        # Find a free backend port
+        backend_port = find_available_port(BACKEND_PORT)
+        if backend_port != BACKEND_PORT:
+            print(f"[WARN] Default backend port {BACKEND_PORT} is in use or forbidden.")
+            print(f"       Using alternative port {backend_port} instead.")
+        
+        # Find a free frontend port
+        frontend_port = find_available_port(FRONTEND_PORT)
+        if frontend_port != FRONTEND_PORT:
+            print(f"[WARN] Default frontend port {FRONTEND_PORT} is in use or forbidden.")
+            print(f"       Using alternative port {frontend_port} instead.")
+
+        start_backend(backend_port)
         time.sleep(2)  # Wait for backend to start
         
-        start_frontend()
+        api_base_url = f"http://127.0.0.1:{backend_port}/api"
+        start_frontend(frontend_port, api_base_url)
         time.sleep(3)  # Wait for frontend to start
         
         print("\n" + "=" * 60)
         print("   [OK] All servers are running!")
-        print(f"   Frontend: http://localhost:{FRONTEND_PORT}")
-        print(f"   Backend API: http://localhost:{BACKEND_PORT}")
-        print(f"   API Docs: http://localhost:{BACKEND_PORT}/docs")
+        print(f"   Frontend: http://localhost:{frontend_port}")
+        print(f"   Backend API: http://localhost:{backend_port}")
+        print(f"   API Docs: http://localhost:{backend_port}/docs")
         print("=" * 60)
         print("\n   Press Ctrl+C to stop all servers\n")
         
         # Open browser automatically
-        webbrowser.open(f"http://localhost:{FRONTEND_PORT}")
+        webbrowser.open(f"http://localhost:{frontend_port}")
         
         # Keep the main thread alive
         while True:
@@ -194,7 +264,9 @@ def main():
     except KeyboardInterrupt:
         cleanup()
     except Exception as e:
-        print(f"\n[ERROR] Error: {e}")
+        print(f"\n[ERROR] critical error: {e}")
+        import traceback
+        traceback.print_exc()
         cleanup()
 
 

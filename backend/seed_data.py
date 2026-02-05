@@ -30,9 +30,14 @@ def seed_database():
     db = SessionLocal()
     
     try:
-        # Check if data already exists
-        if db.query(Teacher).count() > 0:
-            print("[WARN] Database already has data. Skipping seed.")
+        # Check if ANY data already exists to prevent overwriting user data
+        teacher_count = db.query(Teacher).count()
+        subject_count = db.query(Subject).count()
+        room_count = db.query(Room).count()
+        semester_count = db.query(Semester).count()
+        
+        if teacher_count > 0 or subject_count > 0 or room_count > 0 or semester_count > 0:
+            print("[WARN] Database already has user data. Skipping seed to protect your data.")
             return
         
         print("[SEED] Seeding database with sample data...")

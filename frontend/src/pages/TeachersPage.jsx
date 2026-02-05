@@ -94,6 +94,16 @@ export default function TeachersPage() {
         setEditingTeacher(null);
     };
 
+    const getErrorMessage = (err) => {
+        if (typeof err === 'string') return err;
+        const data = err?.response?.data;
+        if (typeof data === 'string') return data;
+        if (data?.detail) return typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        if (data?.message) return data.message;
+        if (Array.isArray(data)) return data.map(e => e.msg || JSON.stringify(e)).join('; ');
+        return err?.message || 'An error occurred';
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
@@ -105,7 +115,7 @@ export default function TeachersPage() {
             fetchData();
             closeModal();
         } catch (err) {
-            const errorMsg = err.response?.data?.detail || err.message || 'Failed to save teacher';
+            const errorMsg = getErrorMessage(err);
             setError(errorMsg);
             console.error(err);
         }
@@ -117,7 +127,7 @@ export default function TeachersPage() {
             await teachersApi.delete(id);
             fetchData();
         } catch (err) {
-            const errorMsg = err.response?.data?.detail || err.message || 'Failed to delete teacher';
+            const errorMsg = getErrorMessage(err);
             setError(errorMsg);
             console.error(err);
         }
@@ -135,6 +145,7 @@ export default function TeachersPage() {
     const handleAddAssignment = async (e) => {
         e.preventDefault();
         const assignmentData = {
+            teacher_id: editingTeacher.id,
             semester_id: parseInt(e.target.semester_id.value),
             subject_id: parseInt(e.target.subject_id.value),
             component_type: e.target.component_type.value,
@@ -147,7 +158,8 @@ export default function TeachersPage() {
             setEditingTeacher(updated.data);
             e.target.reset();
         } catch (err) {
-            setError(err.response?.data?.detail || 'Failed to add assignment');
+            const errorMsg = getErrorMessage(err);
+            setError(errorMsg);
         }
     };
 
@@ -159,7 +171,8 @@ export default function TeachersPage() {
             const updated = await teachersApi.getById(editingTeacher.id);
             setEditingTeacher(updated.data);
         } catch (err) {
-            setError('Failed to remove assignment');
+            const errorMsg = getErrorMessage(err);
+            setError(errorMsg);
         }
     };
 
@@ -412,7 +425,7 @@ export default function TeachersPage() {
                                         <label className="form-label" style={{ fontSize: '0.75rem' }}>Subject</label>
                                         <select name="subject_id" className="form-input" required>
                                             <option value="">Select Subject</option>
-                                            {subjects.filter(s => formData.subject_ids.includes(s.id)).map(s => (
+                                            {subjects.map(s => (
                                                 <option key={s.id} value={s.id}>{s.code} - {s.name}</option>
                                             ))}
                                         </select>

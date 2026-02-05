@@ -1,0 +1,377 @@
+/* Manage Timetable Page Styles */
+
+.manage-timetable-page {
+    animation: fadeIn 300ms ease-out;
+}
+
+.manage-timetable-page .page-header h1 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Controls */
+.manage-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.manage-controls .control-group {
+    flex: 1;
+    min-width: 200px;
+}
+
+.manage-controls .control-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.manage-controls .control-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+/* Info Banner */
+.info-banner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #fbbf24;
+    border-radius: var(--radius);
+    margin-bottom: 1rem;
+}
+
+.info-banner svg {
+    color: #d97706;
+    flex-shrink: 0;
+}
+
+.info-banner div {
+    flex: 1;
+}
+
+.info-banner strong {
+    display: block;
+    color: #92400e;
+    font-size: 0.9375rem;
+    margin-bottom: 0.125rem;
+}
+
+.info-banner p {
+    color: #b45309;
+    font-size: 0.8125rem;
+    margin: 0;
+}
+
+.info-banner .lock-count {
+    background: white;
+    color: #d97706;
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 0.8125rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Timetable Container */
+.manage-timetable-container {
+    padding: 1rem;
+}
+
+.manage-grid-wrapper {
+    overflow-x: auto;
+}
+
+.manage-timetable-grid {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+}
+
+.manage-timetable-grid th,
+.manage-timetable-grid td {
+    border: 1px solid var(--gray-200);
+    vertical-align: top;
+}
+
+.manage-timetable-grid .time-header {
+    width: 100px;
+    padding: 0.75rem;
+    text-align: center;
+    background: var(--gray-100);
+    font-weight: 600;
+    color: var(--gray-600);
+}
+
+.manage-timetable-grid .day-header {
+    padding: 0.75rem;
+    text-align: center;
+    background: var(--primary-700);
+    color: white;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.manage-timetable-grid .time-cell {
+    padding: 0.5rem;
+    text-align: center;
+    background: var(--gray-50);
+    min-width: 80px;
+}
+
+.manage-timetable-grid .period-label {
+    font-weight: 600;
+    color: var(--gray-700);
+    font-size: 0.875rem;
+}
+
+.manage-timetable-grid .period-time {
+    font-size: 0.6875rem;
+    color: var(--gray-500);
+    margin-top: 0.125rem;
+}
+
+.manage-timetable-grid .slot-cell-wrapper {
+    padding: 0;
+    min-height: 90px;
+}
+
+/* Break & Lunch Rows */
+.manage-timetable-grid .break-row td,
+.manage-timetable-grid .lunch-row td {
+    padding: 0.5rem;
+    background: var(--gray-50);
+}
+
+.manage-timetable-grid .break-content,
+.manage-timetable-grid .lunch-content {
+    text-align: center;
+    font-weight: 500;
+    color: var(--gray-500);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Slot Cells */
+.manage-slot-cell {
+    height: 100%;
+    min-height: 85px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    transition: all 0.15s ease;
+}
+
+/* Empty Lockable Slots */
+.manage-slot-cell.empty.lockable {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fafafa;
+    border: 2px dashed transparent;
+}
+
+.manage-slot-cell.empty.lockable:hover {
+    background: #f0f9ff;
+    border-color: var(--primary-400);
+}
+
+.manage-slot-cell.empty.lockable .empty-slot-text {
+    color: var(--gray-400);
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.manage-slot-cell.empty.lockable:hover .empty-slot-text {
+    color: var(--primary-600);
+}
+
+/* Locked Slots */
+.manage-slot-cell.locked {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border-left: 3px solid #f59e0b;
+}
+
+.manage-slot-cell.locked .slot-lock-indicator {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    color: #d97706;
+}
+
+.manage-slot-cell.locked .slot-unlock-btn {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+    font-size: 0.625rem;
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.manage-slot-cell.locked:hover .slot-unlock-btn {
+    opacity: 1;
+}
+
+.manage-slot-cell.locked .slot-unlock-btn:hover {
+    background: #fee2e2;
+}
+
+/* Filled Slots (from generated timetable) */
+.manage-slot-cell.filled.theory {
+    background: var(--theory-bg);
+    border-left: 3px solid var(--theory-border);
+}
+
+.manage-slot-cell.filled.lab {
+    background: var(--lab-bg);
+    border-left: 3px solid var(--lab-border);
+}
+
+.manage-slot-cell.filled.tutorial {
+    background: var(--tutorial-bg);
+    border-left: 3px solid var(--tutorial-border);
+}
+
+.manage-slot-cell.filled.elective {
+    background: var(--elective-bg);
+    border-left: 3px solid var(--elective-border);
+}
+
+/* Slot Content */
+.manage-slot-cell .slot-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.manage-slot-cell .slot-subject {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--gray-800);
+    line-height: 1.25;
+}
+
+.manage-slot-cell .slot-code {
+    font-size: 0.6875rem;
+    color: var(--gray-500);
+    background: rgba(255, 255, 255, 0.7);
+    padding: 0.0625rem 0.25rem;
+    border-radius: 2px;
+    display: inline-block;
+    width: fit-content;
+}
+
+.manage-slot-cell .slot-teacher {
+    font-size: 0.75rem;
+    color: var(--gray-600);
+    margin-top: auto;
+}
+
+.manage-slot-cell .slot-room {
+    font-size: 0.6875rem;
+    color: var(--gray-500);
+}
+
+/* Legend */
+.manage-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--gray-200);
+    font-size: 0.75rem;
+}
+
+.manage-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--gray-600);
+}
+
+.manage-legend .legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+.manage-legend .locked-color {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #f59e0b;
+}
+
+.manage-legend .theory-color {
+    background: var(--theory-bg);
+    border: 1px solid var(--theory-border);
+}
+
+.manage-legend .lab-color {
+    background: var(--lab-bg);
+    border: 1px solid var(--lab-border);
+}
+
+.manage-legend .elective-color {
+    background: var(--elective-bg);
+    border: 1px solid var(--elective-border);
+}
+
+.manage-legend .empty-color {
+    background: #fafafa;
+    border: 2px dashed var(--gray-300);
+}
+
+/* Success Alert */
+.alert-success {
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #34d399;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .manage-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .manage-controls .control-actions {
+        justify-content: flex-end;
+    }
+
+    .info-banner {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .info-banner .lock-count {
+        margin-top: 0.5rem;
+    }
+}

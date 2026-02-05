@@ -1,0 +1,24 @@
+﻿
+============================================================
+Database: timetable.db
+============================================================
+  Size: 0 bytes
+  EMPTY FILE
+
+============================================================
+Database: backend/timetable.db
+============================================================
+  Size: 208896 bytes
+  Tables: ['departments', 'rooms', 'teachers', 'semesters', 'elective_baskets', 'elective_basket_semesters', 'subjects', 'teacher_absences', 'teacher_subjects', 'subject_semesters', 'subject_component_assignments', 'allocations', 'class_subject_teachers', 'elective_groups', 'substitutions', 'elective_group_semesters']
+  Subjects count: 11
+  Electives: 3
+    (3, 'CGI1257', 'Gen AI', 1, 'ELECTIVE')
+    (4, 'CGI1253', 'Digital Marketing', 1, 'ELECTIVE')
+    (5, 'CGI1252', 'Business Analytics', 1, 'ELECTIVE')
+  Semesters count: 3
+
+============================================================
+Database: database/timetable.db
+============================================================
+  Size: 0 bytes
+  EMPTY FILE

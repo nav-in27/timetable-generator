@@ -1,0 +1,68 @@
+﻿============================================================
+ELECTIVE SUBJECTS
+============================================================
+Found 3 electives:
+
+  ID=3: CGI1257 - Gen AI
+    weekly_hours=4, theory=2, is_elective=1, type=ELECTIVE
+  ID=4: CGI1253 - Digital Marketing
+    weekly_hours=4, theory=2, is_elective=1, type=ELECTIVE
+  ID=5: CGI1252 - Business Analytics
+    weekly_hours=4, theory=2, is_elective=1, type=ELECTIVE
+
+============================================================
+ELECTIVE-CLASS ASSIGNMENTS (subject_semesters)
+============================================================
+
+  CGI1257: Assigned to semesters [1, 2, 3]
+    -> AIML2A (Year 4)
+    -> AIDS2A (Year 4)
+    -> AIDS2B (Year 4)
+
+  CGI1253: Assigned to semesters [1, 2, 3]
+    -> AIML2A (Year 4)
+    -> AIDS2A (Year 4)
+    -> AIDS2B (Year 4)
+
+  CGI1252: Assigned to semesters [1, 2, 3]
+    -> AIML2A (Year 4)
+    -> AIDS2A (Year 4)
+    -> AIDS2B (Year 4)
+
+============================================================
+ELECTIVE TEACHER ASSIGNMENTS (class_subject_teachers)
+============================================================
+
+  CGI1257:
+    Sem=AIML2A, Type=THEORY, Teacher=Murugavalli
+    Sem=AIDS2A, Type=THEORY, Teacher=Murugavalli
+    Sem=AIDS2B, Type=THEORY, Teacher=Murugavalli
+
+  CGI1253:
+    Sem=AIDS2A, Type=THEORY, Teacher=Avadiappan
+    Sem=AIDS2B, Type=THEORY, Teacher=Avadiappan
+
+  CGI1252:
+    Sem=AIML2A, Type=THEORY, Teacher=Deena Rose
+    Sem=AIDS2A, Type=THEORY, Teacher=Deena Rose
+    Sem=AIDS2B, Type=THEORY, Teacher=Deena Rose
+
+============================================================
+ELECTIVE TEACHER CAPABILITY (teacher_subjects)
+============================================================
+
+  CGI1257:
+    Teacher: Murugavalli (ID=21)
+
+  CGI1253:
+    Teacher: Avadiappan (ID=22)
+
+  CGI1252:
+    Teacher: Deena Rose (ID=23)
+
+============================================================
+SEMESTERS BY YEAR
+============================================================
+  ID=1: AIML2A (Year 4)
+  ID=2: AIDS2A (Year 4)
+  ID=3: AIDS2B (Year 4)

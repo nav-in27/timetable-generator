@@ -1,44 +1,121 @@
-/* Dashboard Page Styles */
+/* Dashboard Page Styles - Institutional with Subtle Animations */
 .dashboard {
-    max-width: 1400px;
+    max-width: 1200px;
     margin: 0 auto;
 }
 
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    gap: 1.5rem;
+/* Welcome Section - Gentle fade-in */
+.page-header {
+    animation: fadeIn 350ms ease-out;
 }
 
-/* Quick Actions */
+.page-header h1 {
+    position: relative;
+}
+
+.page-header h1::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--primary-600);
+    animation: underlineExpand 500ms ease-out 200ms forwards;
+}
+
+@keyframes underlineExpand {
+    to {
+        width: 48px;
+    }
+}
+
+/* Stats Grid - Staggered fade-in */
+.stats-grid {
+    animation: fadeIn 300ms ease-out;
+}
+
+.stat-card {
+    opacity: 0;
+    animation: fadeInCard 300ms ease-out forwards;
+}
+
+.stat-card:nth-child(1) {
+    animation-delay: 0ms;
+}
+
+.stat-card:nth-child(2) {
+    animation-delay: 50ms;
+}
+
+.stat-card:nth-child(3) {
+    animation-delay: 100ms;
+}
+
+.stat-card:nth-child(4) {
+    animation-delay: 150ms;
+}
+
+.stat-card:nth-child(5) {
+    animation-delay: 200ms;
+}
+
+.stat-card:nth-child(6) {
+    animation-delay: 250ms;
+}
+
+@keyframes fadeInCard {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Dashboard Grid */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 1rem;
+    animation: fadeIn 300ms ease-out 150ms both;
+}
+
+/* Quick Actions - Clean, responsive feel */
 .quick-actions {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .quick-action-btn {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 1rem 1.25rem;
+    padding: 0.75rem 1rem;
     background: var(--gray-50);
+    border: 1px solid var(--gray-200);
     border-radius: var(--radius);
     color: var(--gray-700);
     text-decoration: none;
-    transition: all var(--transition-fast);
-    border: 1px solid var(--gray-100);
+    font-size: 0.875rem;
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
 }
 
 .quick-action-btn:hover {
     background: var(--primary-50);
     border-color: var(--primary-200);
-    color: var(--primary-700);
-    transform: translateX(4px);
+    color: var(--primary-800);
+    text-decoration: none;
+}
+
+.quick-action-btn:active {
+    background: var(--primary-100);
 }
 
 .quick-action-btn svg:first-child {
-    color: var(--primary-500);
+    color: var(--primary-600);
 }
 
 .quick-action-btn span {
@@ -48,6 +125,11 @@
 
 .quick-action-btn svg:last-child {
     color: var(--gray-400);
+    transition: transform 150ms ease-out;
+}
+
+.quick-action-btn:hover svg:last-child {
+    transform: translateX(2px);
 }
 
 /* Recent Substitutions List */
@@ -59,9 +141,31 @@
 .recent-item {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.875rem 0;
+    gap: 0.625rem;
+    padding: 0.625rem 0;
     border-bottom: 1px solid var(--gray-100);
+    opacity: 0;
+    animation: fadeIn 250ms ease-out forwards;
+}
+
+.recent-item:nth-child(1) {
+    animation-delay: 100ms;
+}
+
+.recent-item:nth-child(2) {
+    animation-delay: 150ms;
+}
+
+.recent-item:nth-child(3) {
+    animation-delay: 200ms;
+}
+
+.recent-item:nth-child(4) {
+    animation-delay: 250ms;
+}
+
+.recent-item:nth-child(5) {
+    animation-delay: 300ms;
 }
 
 .recent-item:last-child {
@@ -69,10 +173,10 @@
 }
 
 .recent-item-icon {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     background: var(--primary-100);
-    color: var(--primary-600);
+    color: var(--primary-700);
     border-radius: var(--radius);
     display: flex;
     align-items: center;
@@ -86,10 +190,10 @@
 }
 
 .recent-item-title {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--gray-900);
-    margin-bottom: 0.125rem;
+    color: var(--gray-800);
+    margin-bottom: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -100,8 +204,50 @@
     color: var(--gray-500);
 }
 
+/* Alert Notice - Subtle slide-in */
+.alert {
+    animation: slideInNotice 200ms ease-out;
+}
+
+@keyframes slideInNotice {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Core Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Card hover - No scale, just subtle color change */
+.card {
+    animation: fadeIn 300ms ease-out;
+}
+
+/* Status badge fade-in */
+.badge {
+    animation: fadeIn 400ms ease-out 300ms both;
+}
+
 @media (max-width: 768px) {
     .dashboard-grid {
         grid-template-columns: 1fr;
+    }
+
+    .page-header h1::after {
+        display: none;
     }
 }

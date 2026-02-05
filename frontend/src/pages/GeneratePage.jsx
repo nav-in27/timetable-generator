@@ -11,7 +11,6 @@ import {
     Clock,
     AlertCircle,
     Trash2,
-    Zap,
 } from 'lucide-react';
 import { timetableApi, semestersApi } from '../services/api';
 import { Link } from 'react-router-dom';
@@ -165,38 +164,7 @@ export default function GeneratePage() {
                     </div>
                 </div>
 
-                {/* Algorithm Info Card */}
-                <div className="card">
-                    <div className="card-header">
-                        <h3 className="card-title">Algorithm Details</h3>
-                    </div>
-                    <div className="algorithm-info">
-                        <div className="algo-step">
-                            <div className="algo-step-icon">
-                                <Zap size={18} />
-                            </div>
-                            <div>
-                                <h4>Phase 1: Greedy Assignment</h4>
-                                <p>
-                                    Uses constraint-based scheduling to find a feasible solution that
-                                    satisfies all hard constraints (no conflicts, qualified teachers, etc.)
-                                </p>
-                            </div>
-                        </div>
-                        <div className="algo-step">
-                            <div className="algo-step-icon">
-                                <RefreshCw size={18} />
-                            </div>
-                            <div>
-                                <h4>Phase 2: Genetic Optimization</h4>
-                                <p>
-                                    Improves the solution using evolutionary algorithms to optimize
-                                    soft constraints (balanced workload, minimal gaps, etc.)
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+
             </div>
 
             {/* Result */}

@@ -1,5 +1,5 @@
-Total Allocations: 137
-Elective Slots Found: 6
+Total Allocations: 96
+Elective Slots Found: 14
 Elective Sync: CHECKED
-Subjects with High Repetition: 2 (5.9%)
+Subjects with High Repetition: 3 (13.0%)
 Variety Status: SUCCESS (Minimized Vertical Stacking)

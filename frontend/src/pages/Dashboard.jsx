@@ -113,7 +113,7 @@ export default function Dashboard() {
             <div className="page-header">
                 <div>
                     <h1>Dashboard</h1>
-                    <p>Welcome to the AI Dept Timetable Generator</p>
+                    <p>Welcome to the KR Timetable Generator</p>
                 </div>
                 <button className="btn btn-secondary" onClick={fetchData}>
                     <RefreshCw size={16} />

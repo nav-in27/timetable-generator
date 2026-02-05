@@ -6,14 +6,94 @@ import axios from 'axios';
 
 // Use environment variable for API URL (set in Vercel dashboard)
 // Falls back to localhost for development
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: DEFAULT_API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+const isLocalHostname = (hostname) =>
+  hostname === 'localhost' || hostname === '127.0.0.1';
+
+const isLocalBaseUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    return isLocalHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const withTimeout = async (promise, ms) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try {
+    const result = await promise(controller.signal);
+    return result;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const detectLocalApiBaseUrl = async () => {
+  const hostname = window.location.hostname || '127.0.0.1';
+  const safeHost = isLocalHostname(hostname) ? hostname : '127.0.0.1';
+  const candidatePorts = [8000, 8001, 8002, 8003, 8004, 8005];
+
+  for (const port of candidatePorts) {
+    const healthUrl = `http://${safeHost}:${port}/health`;
+    try {
+      const response = await withTimeout(
+        (signal) => fetch(healthUrl, { signal }),
+        600
+      );
+      if (response.ok) {
+        return `http://${safeHost}:${port}/api`;
+      }
+    } catch {
+      // Ignore and try next port
+    }
+  }
+  return null;
+};
+
+let autoDetectInFlight = null;
+let hasAutoDetected = false;
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const shouldTryDetect =
+      import.meta.env.DEV &&
+      !hasAutoDetected &&
+      !error.response &&
+      isLocalBaseUrl(api.defaults.baseURL);
+
+    if (!shouldTryDetect) {
+      return Promise.reject(error);
+    }
+
+    if (!autoDetectInFlight) {
+      autoDetectInFlight = detectLocalApiBaseUrl().finally(() => {
+        autoDetectInFlight = null;
+      });
+    }
+
+    const detectedBase = await autoDetectInFlight;
+    hasAutoDetected = true;
+
+    if (!detectedBase || detectedBase === api.defaults.baseURL) {
+      return Promise.reject(error);
+    }
+
+    api.defaults.baseURL = detectedBase;
+    const retryConfig = { ...error.config, baseURL: detectedBase };
+    return api.request(retryConfig);
+  }
+);
 
 // ============================================================================
 // Dashboard
@@ -99,6 +179,10 @@ export const timetableApi = {
     const params = semesterId ? `?semester_id=${semesterId}` : '';
     return api.delete(`/timetable/clear${params}`);
   },
+  // PDF Export (READ-ONLY operations)
+  getExportStatus: () => api.get('/timetable/export/status'),
+  getPreviewUrl: () => `${api.defaults.baseURL}/timetable/export/pdf/preview`,
+  getDownloadUrl: () => `${api.defaults.baseURL}/timetable/export/pdf`,
 };
 
 // ============================================================================
@@ -132,6 +216,31 @@ export const substitutionApi = {
     return api.get(`/substitution/active?${params}`);
   },
   cancel: (id) => api.delete(`/substitution/${id}`),
+};
+
+// ============================================================================
+// Fixed Slots (Manual Slot Locking)
+// ============================================================================
+export const fixedSlotsApi = {
+  // Get all fixed slots, optionally filtered by semester
+  getAll: (semesterId = null) => {
+    const params = semesterId ? `?semester_id=${semesterId}` : '';
+    return api.get(`/fixed-slots/${params}`);
+  },
+  // Get fixed slots grouped by semester
+  getBySemester: () => api.get('/fixed-slots/by-semester'),
+  // Get a specific fixed slot
+  getById: (id) => api.get(`/fixed-slots/${id}`),
+  // Create a new fixed slot (lock a slot)
+  create: (data) => api.post('/fixed-slots/', data),
+  // Delete a fixed slot (unlock)
+  delete: (id) => api.delete(`/fixed-slots/${id}`),
+  // Clear all fixed slots for a semester
+  clearSemester: (semesterId) => api.delete(`/fixed-slots/clear/semester/${semesterId}`),
+  // Clear all fixed slots (admin only)
+  clearAll: () => api.delete('/fixed-slots/clear/all'),
+  // Validate if a slot can be locked (without actually locking it)
+  validate: (data) => api.post('/fixed-slots/validate', data),
 };
 
 export default api;

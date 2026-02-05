@@ -10,6 +10,7 @@ import {
     GraduationCap,
     Building2,
     Calendar,
+    Lock,
     UserCheck,
     RefreshCw,
     Menu,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import './Sidebar.css';
+import logo from '../assets/logo.png';
 
 const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -26,7 +28,8 @@ const navItems = [
     { path: '/electives', label: 'Elective Baskets', icon: Layers },
     { path: '/semesters', label: 'Classes', icon: GraduationCap },
     { path: '/rooms', label: 'Rooms', icon: Building2 },
-    { path: '/timetable', label: 'Timetable', icon: Calendar },
+    { path: '/timetable', label: 'View Timetable', icon: Calendar },
+    { path: '/manage-timetable', label: 'Manage Slots', icon: Lock },
     { path: '/substitution', label: 'Substitution', icon: UserCheck },
     { path: '/generate', label: 'Generate', icon: RefreshCw },
 ];
@@ -59,11 +62,11 @@ export default function Sidebar() {
                 <div className="sidebar-header">
                     <div className="logo">
                         <div className="logo-icon">
-                            <Calendar size={24} />
+                            <img src={logo} alt="KR Logo" className="logo-image" />
                         </div>
                         <div className="logo-text">
-                            <span className="logo-title">AI Dept</span>
-                            <span className="logo-subtitle">Timetable Gen</span>
+                            <span className="logo-title">KR Timetable</span>
+                            <span className="logo-subtitle">Generator</span>
                         </div>
                     </div>
                 </div>
@@ -89,7 +92,7 @@ export default function Sidebar() {
 
                 <div className="sidebar-footer">
                     <div className="sidebar-footer-content">
-                        <p>AI Department</p>
+                        <p>KR Department</p>
                         <p className="text-xs text-muted">v1.0.0</p>
                     </div>
                 </div>

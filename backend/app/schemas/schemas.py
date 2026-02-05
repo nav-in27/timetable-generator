@@ -308,6 +308,8 @@ class TeacherResponse(TeacherBase):
         from_attributes = True
 
 
+
+
 # ============================================================================
 # ALLOCATION SCHEMAS
 # ============================================================================
@@ -510,6 +512,67 @@ class DataValidationResult(BaseModel):
 
 
 # ============================================================================
+# FIXED SLOT SCHEMAS (MANUAL SLOT LOCKING)
+# ============================================================================
+
+class FixedSlotBase(BaseModel):
+    """Base schema for fixed/locked slots."""
+    semester_id: int
+    day: int = Field(..., ge=0, le=4, description="Day of week (0=Monday, 4=Friday)")
+    slot: int = Field(..., ge=0, le=6, description="Period number (0-6)")
+    subject_id: int
+    teacher_id: int
+    room_id: Optional[int] = None
+    component_type: ComponentType = ComponentType.THEORY
+    is_lab_continuation: bool = False
+    is_elective: bool = False
+    elective_basket_id: Optional[int] = None
+    locked_by: Optional[str] = None
+    lock_reason: Optional[str] = None
+
+
+class FixedSlotCreate(FixedSlotBase):
+    """Schema for creating a fixed slot."""
+    pass
+
+
+class FixedSlotUpdate(BaseModel):
+    """Schema for updating a fixed slot (limited updates allowed)."""
+    room_id: Optional[int] = None
+    lock_reason: Optional[str] = None
+
+
+class FixedSlotResponse(FixedSlotBase):
+    """Response schema for fixed slot."""
+    id: int
+    locked: bool = True
+    semester_name: Optional[str] = None
+    subject_name: Optional[str] = None
+    subject_code: Optional[str] = None
+    teacher_name: Optional[str] = None
+    room_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class FixedSlotValidation(BaseModel):
+    """Validation result for attempting to lock a slot."""
+    is_valid: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class FixedSlotsBySemester(BaseModel):
+    """Fixed slots grouped by semester for UI display."""
+    semester_id: int
+    semester_name: str
+    fixed_slots: List[FixedSlotResponse] = []
+
+
+# ============================================================================
 # DASHBOARD SCHEMAS
 # ============================================================================
 
@@ -521,6 +584,7 @@ class DashboardStats(BaseModel):
     total_rooms: int
     total_allocations: int
     total_elective_baskets: int = 0
+    total_fixed_slots: int = 0  # NEW: Count of locked slots
     active_substitutions: int
     teachers_absent_today: int
 
