@@ -26,11 +26,9 @@ services:
     autoDeploy: true
 
   # 2. Frontend Static Site
-  - type: web
+  - type: static
     name: timetable-app
-    env: static
-    # Static sites are global and do not take a region
-    plan: free
+    # Static sites are always free and do not have a plan/region
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
