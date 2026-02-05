@@ -7,11 +7,14 @@ Configures CORS, includes all API routes, and initializes the database.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
 import sys
+import os
 
 # Force UTF-8 encoding for logs
 try:
@@ -108,6 +111,29 @@ def root():
 def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+# --- Static File Serving (for production) ---
+# This allows serving the React frontend from the backend server
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    # Mount assets folder for direct file access
+    assets_dir = os.path.join(static_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Prevent shadowing API routes
+        if full_path.startswith("api") or full_path.startswith("docs") or full_path.startswith("redoc"):
+            return None
+            
+        file_path = os.path.join(static_dir, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Single Page Application: Fallback to index.html
+        return FileResponse(os.path.join(static_dir, "index.html"))
 
 
 if __name__ == "__main__":

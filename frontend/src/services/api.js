@@ -5,7 +5,7 @@
 import axios from 'axios';
 
 // Use environment variable for API URL (set in Vercel/Render dashboard)
-// Falls back to localhost for development
+// Falls back to localhost for development or relative path for same-origin production
 let rawApiUrl = import.meta.env.VITE_API_URL || '';
 
 // Smart fix for common deployment misconfigurations
@@ -20,7 +20,11 @@ if (rawApiUrl) {
   }
 }
 
-const DEFAULT_API_BASE_URL = rawApiUrl || 'http://127.0.0.1:8000/api';
+// Fallback logic:
+// 1. If VITE_API_URL is provided, use it.
+// 2. In development, use localhost:8000.
+// 3. In production, use relative /api (assumes same-origin hosting).
+const DEFAULT_API_BASE_URL = rawApiUrl || (import.meta.env.DEV ? 'http://127.0.0.1:8000/api' : '/api');
 
 const api = axios.create({
   baseURL: DEFAULT_API_BASE_URL,
