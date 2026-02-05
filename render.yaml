@@ -8,7 +8,7 @@ services:
   # 1. Backend API Service
   - type: web
     name: timetable-api
-    runtime: python
+    env: python
     region: oregon
     plan: free
     rootDir: backend
@@ -26,8 +26,9 @@ services:
     autoDeploy: true
 
   # 2. Frontend Static Site
-  - type: static
+  - type: web
     name: timetable-app
+    env: static
     region: oregon
     plan: free
     rootDir: frontend
