@@ -29,7 +29,7 @@ services:
   - type: web
     name: timetable-app
     env: static
-    region: oregon
+    # Static sites are global and do not take a region
     plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
