@@ -32,7 +32,8 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     
     @event.listens_for(Engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
-        if str(dbapi_connection.source.url).startswith("sqlite"):
+        # Check if we are using SQLite using the connection string
+        if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
