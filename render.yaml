@@ -1,4 +1,9 @@
 # Render Blueprint - Deploy configuration
+databases:
+  - name: timetable-db
+    region: oregon
+    plan: free
+
 services:
   # 1. Backend API Service
   - type: web
@@ -7,13 +12,15 @@ services:
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    buildCommand: bash build.sh
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.6
       - key: DATABASE_URL
-        value: sqlite:///./timetable.db
+        fromDatabase:
+          name: timetable-db
+          property: connectionString
       - key: PYTHONIOENCODING
         value: utf-8
     autoDeploy: true

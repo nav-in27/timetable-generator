@@ -230,10 +230,16 @@ See full API documentation at http://localhost:8000/docs
 This project is configured for easy deployment to **Render** and **Vercel**.
 
 ### Render (Recommended)
-The project includes a `render.yaml` blueprint. 
+The project includes a `render.yaml` blueprint that automatically sets up:
+1. **Backend API** (Python/FastAPI)
+2. **PostgreSQL Database** (Persistent storage)
+3. **Frontend Static Site** (React/Vite)
+
+**Steps to deploy:**
 1. Connect your GitHub repository to [Render](https://render.com).
-2. Render will automatically detect the blueprint and set up both the Backend API and the Frontend Static Site.
-3. The databases will be configured as SQLite by default (ephemeral in the free tier). For persistent data, configure a PostgreSQL instance on Render and update the `DATABASE_URL` environment variable.
+2. Create a new **Blueprint Instance**.
+3. Render will automatically detect the `render.yaml` and provision all services.
+4. The database will be automatically linked to the API via the `DATABASE_URL` environment variable.
 
 ### Vercel
 The project is optimized for Vercel serverless functions.
