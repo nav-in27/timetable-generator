@@ -6,7 +6,7 @@ services:
   - type: web
     name: timetable-api
     runtime: python
-    region: oregon
+    region: oregon 
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -19,3 +19,29 @@ services:
       - key: PYTHONIOENCODING
         value: utf-8
     autoDeploy: true
+
+  # Frontend Static Site
+  - type: static
+    name: timetable-app
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: timetable-api
+          property: host
+        # The property 'host' gives the internal/external URL. 
+        # For Vite, we need the public URL appended with /api.
+        # But VITE_API_URL is used during BUILD time.
+        # This is a bit tricky with Static sites on Render because 
+        # they don't have access to other service URLs during build easily.
+        # Actually, Render supports 'fromService' for static sites.
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

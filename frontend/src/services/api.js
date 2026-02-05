@@ -4,9 +4,23 @@
  */
 import axios from 'axios';
 
-// Use environment variable for API URL (set in Vercel dashboard)
+// Use environment variable for API URL (set in Vercel/Render dashboard)
 // Falls back to localhost for development
-const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+let rawApiUrl = import.meta.env.VITE_API_URL || '';
+
+// Smart fix for common deployment misconfigurations
+if (rawApiUrl) {
+  // Ensure it has a protocol
+  if (!rawApiUrl.startsWith('http')) {
+    rawApiUrl = `https://${rawApiUrl}`;
+  }
+  // Ensure it has the /api suffix if missing
+  if (!rawApiUrl.endsWith('/api')) {
+    rawApiUrl = rawApiUrl.endsWith('/') ? `${rawApiUrl}api` : `${rawApiUrl}/api`;
+  }
+}
+
+const DEFAULT_API_BASE_URL = rawApiUrl || 'http://127.0.0.1:8000/api';
 
 const api = axios.create({
   baseURL: DEFAULT_API_BASE_URL,
