@@ -1,8 +1,6 @@
 # Render Blueprint - Deploy configuration
-# This file configures automatic deployment of the Timetable Generator on Render
-
 services:
-  # 1. Backend API Service (Python/FastAPI)
+  # 1. Backend API Service
   - type: web
     name: timetable-api
     runtime: python
@@ -13,14 +11,14 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: "3.11.0"
+        value: 3.11.6
       - key: DATABASE_URL
         value: sqlite:///./timetable.db
       - key: PYTHONIOENCODING
         value: utf-8
     autoDeploy: true
 
-  # 2. Frontend Static Site (React/Vite)
+  # 2. Frontend Static Site
   - type: static
     name: timetable-app
     region: oregon
@@ -29,6 +27,10 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     envVars:
+      - key: NODE_VERSION
+        value: 18.17.0
+      - key: NPM_CONFIG_PRODUCTION
+        value: false
       - key: VITE_API_URL
         fromService:
           type: web
