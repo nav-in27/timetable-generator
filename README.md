@@ -225,7 +225,31 @@ See full API documentation at http://localhost:8000/docs
 - [ ] Conflict visualization
 - [ ] Room booking calendar view
 
-## 📄 License
+## � Deployment
+
+This project is configured for easy deployment to **Render** and **Vercel**.
+
+### Render (Recommended)
+The project includes a `render.yaml` blueprint. 
+1. Connect your GitHub repository to [Render](https://render.com).
+2. Render will automatically detect the blueprint and set up both the Backend API and the Frontend Static Site.
+3. The databases will be configured as SQLite by default (ephemeral in the free tier). For persistent data, configure a PostgreSQL instance on Render and update the `DATABASE_URL` environment variable.
+
+### Vercel
+The project is optimized for Vercel serverless functions.
+1. **Frontend**: Deploy the `frontend` directory as a new Vercel project. Set `VITE_API_URL` to your backend URL.
+2. **Backend**: Deploy the `backend` directory as a second Vercel project. Vercel will use the provided `vercel.json` and `api/index.py`.
+
+### Environment Variables
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Backend port (automatically set by Render/Vercel) | 8000 |
+| `DATABASE_URL` | SQLAlchemy connection string | `sqlite:///./timetable.db` |
+| `VITE_API_URL` | (Frontend only) URL of the backend API | (Detected) |
+
+---
+
+## �📄 License
 
 This project is open source and available under the [MIT License](LICENSE).
 

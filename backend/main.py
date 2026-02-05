@@ -144,6 +144,7 @@ if __name__ == "__main__":
     def is_port_in_use(port: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
+            # Use 0.0.0.0 for checking to be consistent with binding
             return s.connect_ex(("127.0.0.1", port)) == 0
 
     def find_available_port(start_port: int, max_tries: int = 20) -> int:
@@ -154,9 +155,23 @@ if __name__ == "__main__":
             port += 1
         raise RuntimeError(f"No free port found starting from {start_port}")
 
-    default_port = int(os.getenv("PORT", "8000"))
-    selected_port = find_available_port(default_port)
-    if selected_port != default_port:
-        print(f"[WARN] Port {default_port} is in use. Using {selected_port} instead.")
+    # For deployment (Render/Vercel/Docker), we want to bind to 0.0.0.0
+    # For local dev, 127.0.0.1 is fine, but 0.0.0.0 is more flexible
+    port_env = os.getenv("PORT")
+    if port_env:
+        # In production environments (like Render), PORT is provided
+        selected_port = int(port_env)
+        host = "0.0.0.0"
+        reload = False # Disable reload in production
+        print(f"[INFO] Production mode: binding to {host}:{selected_port}")
+    else:
+        # In local development
+        default_port = 8000
+        selected_port = find_available_port(default_port)
+        host = "127.0.0.1"
+        reload = True
+        if selected_port != default_port:
+            print(f"[WARN] Port {default_port} is in use. Using {selected_port} instead.")
+        print(f"[INFO] Local development mode: binding to {host}:{selected_port}")
 
-    uvicorn.run("main:app", host="127.0.0.1", port=selected_port, reload=True)
+    uvicorn.run("main:app", host=host, port=selected_port, reload=reload)
