@@ -11,10 +11,17 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+# Get Database URL
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+# Fix for Render/PostgreSQL: SQLAlchemy 1.4+ removed support for 'postgres://'
+if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # Handle SQLite vs PostgreSQL connection args
-if settings.DATABASE_URL.startswith("sqlite"):
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
-        settings.DATABASE_URL,
+        SQLALCHEMY_DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool
     )
@@ -25,12 +32,12 @@ if settings.DATABASE_URL.startswith("sqlite"):
     
     @event.listens_for(Engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
-        if settings.DATABASE_URL.startswith("sqlite"):
+        if str(dbapi_connection.source.url).startswith("sqlite"):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 else:
-    engine = create_engine(settings.DATABASE_URL)
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
