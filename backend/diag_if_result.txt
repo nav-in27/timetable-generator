@@ -1,0 +1,275 @@
+
+============================================================
+COLLEGE TIMETABLE GENERATION ENGINE (MULTI-DEPT)
+============================================================
+TARGET: 12 classes across 1 departments
+DATA: Clearing existing allocations for target classes...
+   Cleared 376 existing allocations
+
+DATA: Loading global resources (Teachers, Subjects, Rooms)...
+   [INFO] Detected 6 additional append-mode assignment row(s). Balanced primary mapping selected per class-subject-component.
+   TOTAL LOCKED MAPPINGS: 491
+   [TEMPLATE] Using EVEN template. Blocked slots: set()
+   [LAB] Valid continuous lab blocks: [(0, 1), (1, 2), (3, 4), (4, 5), (5, 6)]
+
+PHASE 0: PRE-SCHEDULING ELECTIVE BASKETS
+   [PLAN] Year 1 Basket 5 Global Elective requires: 3 Theory, 0 Lab Blocks
+   [PLAN] Year 1 Basket 6 Global Elective requires: 3 Theory, 0 Lab Blocks
+   [PLAN] Year 1 Basket 7 Global Elective requires: 3 Theory, 1 Lab Blocks
+   [PLAN] Year 1 Basket 8 Global Elective requires: 4 Theory, 0 Lab Blocks
+   [PLAN] Year 1 Basket 9 Global Elective requires: 3 Theory, 0 Lab Blocks
+   [PLAN] Year 1 Basket 10 Global Elective requires: 0 Theory, 1 Lab Blocks
+   [PLAN] Year 1 Basket 11 Global Elective requires: 2 Theory, 2 Lab Blocks
+   [PLAN] Year 1 Basket 12 Global Elective requires: 0 Theory, 1 Lab Blocks
+   [GLOBAL] Locked 8 theory groups and 8 lab groups
+   [CLEANUP] Clearing all existing allocations for these semesters...
+   Cleared 0 existing allocations
+   [GLOBAL] Loaded 0 external allocations as constraints
+
+PHASE 0.5: PRE-SCHEDULING STRUCTURED COMPOSITE BASKETS
+   [GLOBAL SCB] Locked 0 SCB slot entries
+
+STARTING PHASE 1: Dept 10 (12 classes)
+   TOTAL ROOM PREFERENCES: 140
+   TOTAL BATCH-SPECIFIC MAPPINGS: 0
+   TOTAL BATCH-SPECIFIC ROOMS: 0
+   [STRICT] No teacher for elective EGB1122 in Class 13 (I-A) - leaving unassigned
+   [NO MAPPING] EGB1122 - theory in I-A
+   [STRICT] No teacher for elective EGB1122 in Class 13 (I-A) - leaving unassigned
+   [NO MAPPING] EGB1122 - lab in I-A
+   [STRICT] No teacher for elective EEB1121 in Class 13 (I-A) - leaving unassigned
+   [NO MAPPING] EEB1121 - theory in I-A
+   [STRICT] No teacher for elective EEB1131 in Class 13 (I-A) - leaving unassigned
+   [NO MAPPING] EEB1131 - lab in I-A
+   [STRICT] No teacher for elective FLC1298 in Class 13 (I-A) - leaving unassigned
+   [NO MAPPING] FLC1298 - theory in I-A
+   [STRICT] No teacher for elective EGB1122 in Class 14 (I-B) - leaving unassigned
+   [NO MAPPING] EGB1122 - theory in I-B
+   [STRICT] No teacher for elective EGB1122 in Class 14 (I-B) - leaving unassigned
+   [NO MAPPING] EGB1122 - lab in I-B
+   [STRICT] No teacher for elective EEB1121 in Class 14 (I-B) - leaving unassigned
+   [NO MAPPING] EEB1121 - theory in I-B
+   [STRICT] No teacher for elective EEB1131 in Class 14 (I-B) - leaving unassigned
+   [NO MAPPING] EEB1131 - lab in I-B
+   [STRICT] No teacher for elective FLC1298 in Class 14 (I-B) - leaving unassigned
+   [NO MAPPING] FLC1298 - theory in I-B
+   [STRICT] No teacher for elective EGB1122 in Class 15 (I-C) - leaving unassigned
+   [NO MAPPING] EGB1122 - theory in I-C
+   [STRICT] No teacher for elective EGB1122 in Class 15 (I-C) - leaving unassigned
+   [NO MAPPING] EGB1122 - lab in I-C
+   [STRICT] No teacher for elective EEB1121 in Class 15 (I-C) - leaving unassigned
+   [NO MAPPING] EEB1121 - theory in I-C
+   [STRICT] No teacher for elective EEB1131 in Class 15 (I-C) - leaving unassigned
+   [NO MAPPING] EEB1131 - lab in I-C
+   [STRICT] No teacher for elective FLC1299 in Class 15 (I-C) - leaving unassigned
+   [NO MAPPING] FLC1299 - theory in I-C
+   [STRICT] No teacher for elective AGI1151 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] AGI1151 - theory in I-D
+   [STRICT] No teacher for elective AGI1151 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] AGI1151 - lab in I-D
+   [STRICT] No teacher for elective AGI1152 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] AGI1152 - theory in I-D
+   [STRICT] No teacher for elective AGI1153 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] AGI1153 - lab in I-D
+   [STRICT] No teacher for elective EEB1121 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] EEB1121 - theory in I-D
+   [STRICT] No teacher for elective EEB1131 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] EEB1131 - lab in I-D
+   [STRICT] No teacher for elective FLC1298 in Class 16 (I-D) - leaving unassigned
+   [NO MAPPING] FLC1298 - theory in I-D
+   [STRICT] No teacher for elective AGI1151 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] AGI1151 - theory in I-E
+   [STRICT] No teacher for elective AGI1151 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] AGI1151 - lab in I-E
+   [STRICT] No teacher for elective AGI1152 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] AGI1152 - theory in I-E
+   [STRICT] No teacher for elective AGI1153 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] AGI1153 - lab in I-E
+   [STRICT] No teacher for elective EEB1121 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] EEB1121 - theory in I-E
+   [STRICT] No teacher for elective EEB1131 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] EEB1131 - lab in I-E
+   [STRICT] No teacher for elective FLC1299 in Class 17 (I-E) - leaving unassigned
+   [NO MAPPING] FLC1299 - theory in I-E
+   [STRICT] No teacher for elective AGI1151 in Class 18 (I-F) - leaving unassigned
+   [NO MAPPING] AGI1151 - theory in I-F
+   [STRICT] No teacher for elective AGI1151 in Class 18 (I-F) - leaving unassigned
+   [NO MAPPING] AGI1151 - lab in I-F
+   [STRICT] No teacher for elective AGI1152 in Class 18 (I-F) - leaving unassigned
+   [NO MAPPING] AGI1152 - theory in I-F
+   [STRICT] No teacher for elective AGI1153 in Class 18 (I-F) - leaving unassigned
+   [NO MAPPING] AGI1153 - lab in I-F
+   [STRICT] No teacher for elective FLC1299 in Class 18 (I-F) - leaving unassigned
+   [NO MAPPING] FLC1299 - theory in I-F
+   [STRICT] No teacher for elective CGB1121 in Class 19 (I-G) - leaving unassigned
+   [NO MAPPING] CGB1121 - theory in I-G
+   [STRICT] No teacher for elective CGB1121 in Class 19 (I-G) - leaving unassigned
+   [NO MAPPING] CGB1121 - lab in I-G
+   [STRICT] No teacher for elective FLC1299 in Class 19 (I-G) - leaving unassigned
+   [NO MAPPING] FLC1299 - theory in I-G
+   [STRICT] No teacher for elective CGB1121 in Class 20 (I-H) - leaving unassigned
+   [NO MAPPING] CGB1121 - theory in I-H
+   [STRICT] No teacher for elective CGB1121 in Class 20 (I-H) - leaving unassigned
+   [NO MAPPING] CGB1121 - lab in I-H
+   [STRICT] No teacher for elective FLC1299 in Class 20 (I-H) - leaving unassigned
+   [NO MAPPING] FLC1299 - theory in I-H
+   [STRICT] No teacher for elective CGB1121 in Class 21 (I-I) - leaving unassigned
+   [NO MAPPING] CGB1121 - theory in I-I
+   [STRICT] No teacher for elective CGB1121 in Class 21 (I-I) - leaving unassigned
+   [NO MAPPING] CGB1121 - lab in I-I
+   [STRICT] No teacher for elective FLC1299 in Class 21 (I-I) - leaving unassigned
+   [NO MAPPING] FLC1299 - theory in I-I
+   [STRICT] No teacher for elective CGB1121 in Class 22 (I-J) - leaving unassigned
+   [NO MAPPING] CGB1121 - theory in I-J
+   [STRICT] No teacher for elective CGB1121 in Class 22 (I-J) - leaving unassigned
+   [NO MAPPING] CGB1121 - lab in I-J
+   [STRICT] No teacher for elective FLC1298 in Class 22 (I-J) - leaving unassigned
+   [NO MAPPING] FLC1298 - theory in I-J
+   [STRICT] No teacher for elective CGB1121 in Class 23 (I-K) - leaving unassigned
+   [NO MAPPING] CGB1121 - theory in I-K
+   [STRICT] No teacher for elective CGB1121 in Class 23 (I-K) - leaving unassigned
+   [NO MAPPING] CGB1121 - lab in I-K
+   [STRICT] No teacher for elective FLC1298 in Class 23 (I-K) - leaving unassigned
+   [NO MAPPING] FLC1298 - theory in I-K
+   [STRICT] No teacher for elective CGB1121 in Class 24 (I-L) - leaving unassigned
+   [NO MAPPING] CGB1121 - theory in I-L
+   [STRICT] No teacher for elective CGB1121 in Class 24 (I-L) - leaving unassigned
+   [NO MAPPING] CGB1121 - lab in I-L
+   [STRICT] No teacher for elective FLC1298 in Class 24 (I-L) - leaving unassigned
+   [NO MAPPING] FLC1298 - theory in I-L
+   [WARN] 40 elective subjects missing teacher assignments (not scheduled)
+   Built 266 requirements from existing mappings
+   [PLAN] Applied global elective THEORY plan for 8 groups
+   [PLAN] Applied global elective LAB plan for 8 groups
+      Processing 6 elective group(s)
+
+      Elective Group 'Core Subjects' (Year 1, Basket 7):
+        Component: theory
+        [SYNC] Preferred 3 global slots (with 32 fallback slots)
+        Scheduled 18/18 class-hours for theory
+
+      Elective Group 'Program Core' (Year 1, Basket 8):
+        Component: theory
+        [SYNC] Preferred 4 global slots (with 31 fallback slots)
+        Scheduled 24/24 class-hours for theory
+
+      Elective Group 'Language Elective' (Year 1, Basket 5):
+        Component: theory
+        [SYNC] Preferred 3 global slots (with 32 fallback slots)
+        Scheduled 18/18 class-hours for theory
+
+      Elective Group 'Language Elective - II' (Year 1, Basket 6):
+        Component: theory
+        [SYNC] Preferred 3 global slots (with 32 fallback slots)
+        Scheduled 18/18 class-hours for theory
+
+      Elective Group 'EG/pp' (Year 1, Basket 11):
+        Component: theory
+        [SYNC] Preferred 2 global slots (with 33 fallback slots)
+        Scheduled 6/6 class-hours for theory
+
+      Elective Group 'program core 2' (Year 1, Basket 9):
+        Component: theory
+        [SYNC] Preferred 3 global slots (with 32 fallback slots)
+        Scheduled 18/18 class-hours for theory
+      [E-LAB] Grouped 40 reqs into 4 basket groups
+      [E-LAB] Basket 7 (Year 1): 2 subjects, 6 classes, need 1 block(s)
+        [OK] Lab block at Day 0 Slots 0-1 (6 classes)
+        [OK] Basket 7 completed 6/6 class-blocks using 1 synchronized slot(s).
+      [E-LAB] Basket 12 (Year 1): 3 subjects, 6 classes, need 1 block(s)
+        [OK] Lab block at Day 3 Slots 0-1 (6 classes)
+        [OK] Basket 12 completed 6/6 class-blocks using 1 synchronized slot(s).
+      [E-LAB] Basket 11 (Year 1): 1 subjects, 6 classes, need 2 block(s)
+        [E-LAB] Basket 11 (Year 1): Unscheduled 12/12 class-block(s). Checked 25 slots.
+      [E-LAB] Basket 10 (Year 1): 3 subjects, 6 classes, need 1 block(s)
+        [E-LAB] Basket 10 (Year 1): Unscheduled 6/6 class-block(s). Checked 25 slots. (Restricted by GLOBAL plan: {(1, 0), (1, 1)})
+      I-A...
+         -> 15 subjects
+      I-B...
+         -> 15 subjects
+      I-C...
+         -> 15 subjects
+      I-D...
+         -> 14 subjects
+      I-E...
+         -> 15 subjects + 2 FREE
+      I-F...
+         -> 15 subjects + 4 FREE
+      I-G...
+         -> 15 subjects + 7 FREE
+      I-H...
+         -> 15 subjects + 7 FREE
+      I-I...
+         -> 15 subjects + 7 FREE
+      I-J...
+         -> 15 subjects + 7 FREE
+      I-K...
+         -> 15 subjects + 7 FREE
+      I-L...
+         -> 15 subjects + 7 FREE
+   [OK] Saved 371 valid allocations
+
+PHASE 2: GLOBAL VALIDATION & CONFLICT CHECK...
+
+==============================================
+  ALLOCATION ISSUES / FAILURES:
+==============================================
+  - [E-LAB] Basket 11 (Year 1): Unscheduled 12/12 class-block(s). Checked 25 slots.
+  - [E-LAB] Basket 10 (Year 1): Unscheduled 6/6 class-block(s). Checked 25 slots. (Restricted by GLOBAL plan: {(1, 0), (1, 1)})
+  - [LAB] Class 17 GEA1111 (lab): Unscheduled 1/1 block(s). Assigned teacher 176 not available with a valid room pair.
+  - [LAB] Class 18 GEA1121 (lab): Unscheduled 1/1 block(s). Assigned teacher 133 not available with a valid room pair.
+  - [LAB] Class 18 GEA1111 (lab): Unscheduled 1/1 block(s). Assigned teacher 176 not available with a valid room pair.
+  - [POST-PASS] Class 16: 1 hours unschedulable. Subjects: CSD (C)
+   [OK] GLOBAL VALIDATION PASSED. No inter-department conflicts.
+
+GEN RESULT: success=True, allocs=371, time=0.3s
+MSG: Dept 10: Generated 371 slots (48 free) | causes: elective basket teacher/slot mapping is constrained (configuration); some assigned lab teachers/room pairs cannot fit a valid 2-slot block
+
+=== I-F (sem_id=18) ALLOCATIONS (31) ===
+
+GRID (Day x Slot):
+        Slot0  Slot1  Slot2  Slot3  Slot4  Slot5  Slot6
+   Mon  S 71  S 71  S 64  S 63  S 74  S 68  S 97
+   Tue  S 64  S 65  S 63  S 66  S 74  S 71  ----
+   Wed  S 63  S 97  S 64  S 65  S 74  S 71  ----
+   Thu  S 75  S 75  S 65  S 64  S 71  S 74  ----
+   Fri  S 63  S 65  S 65  S 97  S 67  S 78  ----
+
+=== EMPTY SLOTS for I-F (4 total) ===
+  Tue Slot 6
+  Wed Slot 6
+  Thu Slot 6
+  Fri Slot 6
+
+=== TEACHER ASSIGNMENTS for I-F (22) ===
+  Engineering Mathematics-II [lab] -> Saranya (ID=133), 2h/week
+  Engineering Mathematics-II [theory] -> Saranya (ID=133), 4h/week
+  Engineering Physics [theory] -> ManiKandan (ID=161), 4h/week
+  Data Structure [lab] -> Vishnu Priya (ID=46), 2h/week
+  Data Structure [theory] -> Vishnu Priya (ID=46), 3h/week
+  Tamil And Technology [theory] -> Devahi (ID=173), 1h/week
+  CSD (A) [theory] -> Surendhar (ID=153), 1h/week
+  CSD (C) [theory] -> Sumathra (ID=156), 1h/week
+  Engineering Physics LAB [lab] -> Dhandapani (ID=176), 2h/week
+  Python Programming [lab] -> Roshan Josua (ID=33), 2h/week
+  Python Programming [theory] -> Roshan Josua (ID=33), 3h/week
+  Electronics Circuits [theory] -> Nithya (ID=80), 4h/week
+  Electronics Circuits LAB [lab] -> Nithya (ID=80), 2h/week
+  Electronics Circuits Analysis [theory] -> Sabarish (ID=188), 4h/week
+  Electronics Circuits Analysis LAB [lab] -> Sabarish (ID=188), 2h/week
+  Library-1 [theory] -> Saranya (ID=133), 1h/week
+  Basic Spanish-1 [theory] -> Spanish Teacher (ID=187), 3h/week
+  Professional English-3 [theory] -> Jeevanantham (ID=165), 3h/week
+  Professional English-4 [theory] -> Arul Doss (ID=167), 3h/week
+  Professional English -5 [theory] -> Jayakumar (ID=166), 3h/week
+  Basic Japanese -3 [theory] -> Nishanth (ID=183), 3h/week
+  Basic German -2 [theory] -> German Teacher 2 (ID=186), 3h/week
+
+  TOTAL SCHEDULED HOURS EXPECTED: 56
+  TOTAL SLOTS AVAILABLE: 35 = 35
+  ACTUAL ALLOCATIONS: 31
+  DEFICIT: 25 slots
+
+=== ALLOCATION FAILURES (I-F related) ===
+  [LAB] Class 18 GEA1121 (lab): Unscheduled 1/1 block(s). Assigned teacher 133 not available with a valid room pair.
+  [LAB] Class 18 GEA1111 (lab): Unscheduled 1/1 block(s). Assigned teacher 176 not available with a valid room pair.

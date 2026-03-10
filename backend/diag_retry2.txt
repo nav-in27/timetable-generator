@@ -1,0 +1,89 @@
+
+      [LAB-RETRY-DBG] 
+Trying GEA1111 sem=17 
+teacher=176 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=12 
+teacher_skip=4 
+theory_skip=9 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=54
+      [LAB-RETRY-DBG] 
+Trying GEA1121 sem=18 
+teacher=133 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=11 
+teacher_skip=6 
+theory_skip=8 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=52
+      [LAB-RETRY-DBG] 
+Trying GEA1111 sem=18 
+teacher=176 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=13 
+teacher_skip=4 
+theory_skip=8 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=54
+  - [LAB] Class 17 
+GEA1111 (lab): 
+Unscheduled 1/1 
+block(s). Assigned 
+teacher 176 not 
+available with a valid 
+room pair.
+  - [LAB] Class 18 
+GEA1121 (lab): 
+Unscheduled 1/1 
+block(s). Assigned 
+teacher 133 not 
+available with a valid 
+room pair.
+  - [LAB] Class 18 
+GEA1111 (lab): 
+Unscheduled 1/1 
+block(s). Assigned 
+teacher 176 not 
+available with a valid 
+room pair.
+Gen: True, allocs=371
+  [LAB] Class 17 
+GEA1111 (lab): 
+Unscheduled 1/1 
+block(s). Assigned 
+teacher 176 not 
+available with a valid 
+room pair.
+  [LAB] Class 18 
+GEA1121 (lab): 
+Unscheduled 1/1 
+block(s). Assigned 
+teacher 133 not 
+available with a valid 
+room pair.
+  [LAB] Class 18 
+GEA1111 (lab): 
+Unscheduled 1/1 
+block(s). Assigned 
+teacher 176 not 
+available with a valid 
+room pair.
+Lab-retry messages: 
+(should appear above 
+if retry ran)
+I-F allocs: 31
+
+

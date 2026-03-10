@@ -1,0 +1,405 @@
+
+      [LAB-RETRY-DBG] 
+Trying GEA1111 sem=17 
+teacher=176 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=12 
+teacher_skip=4 
+theory_skip=9 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=54
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=189: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=63 teacher=142: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=63 teacher=142: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=96 teacher=167: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=67 teacher=153: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=87: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=87: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=78 teacher=142: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=63 teacher=142: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=96 teacher=167: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=189: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=87: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=87: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=68 teacher=157: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=87: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=70: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=189: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=66 teacher=173: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Trying GEA1121 sem=18 
+teacher=133 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=11 
+teacher_skip=6 
+theory_skip=8 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=52
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=68 teacher=156: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=68 teacher=156: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=97 teacher=166: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=64 teacher=161: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=46: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=66 teacher=173: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=97 teacher=166: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=64 teacher=161: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=46: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=64 teacher=161: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=97 teacher=166: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=67 teacher=153: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Trying GEA1111 sem=18 
+teacher=176 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=13 
+teacher_skip=4 
+theory_skip=8 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=54
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=63 teacher=133: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=68 teacher=156: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=68 teacher=156: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=97 teacher=166: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=64 teacher=161: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=46: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=46: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=63 teacher=133: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=66 teacher=173: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=63 teacher=133: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=97 teacher=166: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=65 teacher=46: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=71 teacher=33: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=74 teacher=80: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=97 teacher=166: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=67 teacher=153: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=67 teacher=153: 
+open_slots=0 
+teacher_free_at_open=0
+      [LAB-RETRY-DBG] 
+Cannot reschedule 
+subj=78 teacher=133: 
+open_slots=0 
+teacher_free_at_open=0
+Lab-retry messages: 
+(should appear above 
+if retry ran)
+
+

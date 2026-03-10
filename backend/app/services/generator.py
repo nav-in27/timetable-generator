@@ -205,6 +205,49 @@ class TimetableState:
         
         return True
     
+    def remove_allocation(self, entry: AllocationEntry):
+        """Remove an allocation from in-memory state, reversing all tracking."""
+        slot_key = (entry.day, entry.slot)
+        
+        # Remove from allocations list
+        self.allocations = [
+            a for a in self.allocations
+            if not (a.semester_id == entry.semester_id
+                    and a.subject_id == entry.subject_id
+                    and a.teacher_id == entry.teacher_id
+                    and a.day == entry.day
+                    and a.slot == entry.slot)
+        ]
+        
+        # Only remove from lookup sets if no other allocation uses same slot
+        remaining_at_slot = [
+            a for a in self.allocations
+            if a.day == entry.day and a.slot == entry.slot
+        ]
+        
+        # Remove teacher slot if no other allocation has this teacher at this slot
+        if entry.teacher_id is not None and entry.teacher_id in self.teacher_slots:
+            if not any(a.teacher_id == entry.teacher_id for a in remaining_at_slot):
+                self.teacher_slots[entry.teacher_id].discard(slot_key)
+        
+        # Remove room slot if no other allocation has this room at this slot
+        if entry.room_id is not None and entry.room_id in self.room_slots:
+            if not any(a.room_id == entry.room_id for a in remaining_at_slot):
+                self.room_slots[entry.room_id].discard(slot_key)
+        
+        # Remove semester slot if no other allocation for this semester at this slot
+        if entry.semester_id in self.semester_slots:
+            if not any(a.semester_id == entry.semester_id for a in remaining_at_slot):
+                self.semester_slots[entry.semester_id].discard(slot_key)
+        
+        # Decrement subject daily count
+        day_key = (entry.semester_id, entry.day)
+        if day_key in self.subject_daily_counts:
+            if entry.subject_id in self.subject_daily_counts[day_key]:
+                self.subject_daily_counts[day_key][entry.subject_id] = max(
+                    0, self.subject_daily_counts[day_key][entry.subject_id] - 1
+                )
+    
     def is_teacher_free(self, teacher_id: int, day: int, slot: int) -> bool:
         """Check if teacher is free (in-memory check)."""
         if slot in self.global_blocked_slots:
@@ -850,8 +893,17 @@ class TimetableGenerator:
                 print(f"   [PARALLEL-MULTI] {len(failed_parallel)} reqs failed parallel scheduling. Falling back to regular.")
                 regular_lab_reqs.extend(failed_parallel)
 
-        self._schedule_labs_readonly(state, regular_lab_reqs, rooms)
+        failed_lab_reqs = self._schedule_labs_readonly(state, regular_lab_reqs, rooms)
         _, free_periods = self._schedule_theory_readonly(state, theory_tutorial_reqs, lecture_rooms, semesters, semester_by_id, default_classroom_map)
+
+        # POST-THEORY LAB RETRY: Displace theory to make room for failed labs.
+        # When labs fail initially (teacher/room busy), theory fills ALL slots.
+        # This retry swaps out 2 adjacent theory classes and inserts the lab block.
+        if failed_lab_reqs:
+            self._retry_failed_labs_post_theory(
+                state, failed_lab_reqs, rooms, lecture_rooms, semesters,
+                semester_by_id, default_classroom_map
+            )
         
         # 10. SAVE (New allocations only)
         # Filter allocations to only those for this batch (state might contain pre-filled others)
@@ -1545,15 +1597,20 @@ class TimetableGenerator:
             else:
                 additional_teachers_by_key.setdefault(key, set()).add(assignment.teacher_id)
 
-        # STEP 3: Fill remaining unmapped keys from teacher_subjects (strict deterministic read).
-        inferred_map = self._read_teacher_subjects_mapping_strict()
-        inferred_added = 0
-        for key, teacher_id in inferred_map.items():
-            if key not in assignment_map:
-                assignment_map[key] = teacher_id
-                inferred_added += 1
-        if inferred_added:
-            print(f"   [INFO] Filled {inferred_added} mappings from teacher_subjects")
+        # STEP 3: REMOVED - Global teacher_subjects fallback.
+        # Previously this called _read_teacher_subjects_mapping_strict() which used
+        # the teacher_subjects table (subject_id -> teacher_id with NO class filter).
+        # This caused Teacher X assigned to Subject Y for Class A to bleed into
+        # Class D's timetable. Now only ClassSubjectTeacher (STEP 1 & 2) mappings
+        # are used. If no explicit class+subject mapping exists, the slot is left
+        # unassigned rather than pulling a teacher from another class.
+        #
+        # Priority resolution order:
+        #   1) Locked teacher assignment (ClassSubjectTeacher) - STEP 1 above
+        #   2) Batch teacher assignment (ClassSubjectTeacher with batch_id) - STEP 2 above
+        #   3) Elective teachers (handled in elective scheduling)
+        #   4) Parallel basket teachers (handled in parallel lab scheduling)
+        #   5) Unassigned (leave empty - DO NOT pull from another class)
 
         if additional_teachers_by_key:
             extra_count = sum(len(v) for v in additional_teachers_by_key.values())
@@ -1898,16 +1955,12 @@ class TimetableGenerator:
                 for subject in basket.subjects:
                     if subject.id not in groups[group_key].subjects:
                         groups[group_key].subjects.append(subject.id)
-                    # Prefer explicit class-subject mapping; fallback to subject-level teachers.
-                    added_teacher = False
+                    # STRICT: Only use explicit class-subject mapping (ClassSubjectTeacher).
+                    # REMOVED: subject.teachers fallback (global lookup, no class filter).
                     for comp_type in ['theory', 'lab', 'tutorial']:
                         key = (sem.id, subject.id, comp_type)
                         if key in teacher_map:
                             groups[group_key].teachers.add(teacher_map[key])
-                            added_teacher = True
-                    if not added_teacher and getattr(subject, "teachers", None):
-                        for t in subject.teachers:
-                            groups[group_key].teachers.add(t.id)
 
         # Include semesters inferred from explicit ClassSubjectTeacher mappings for electives.
         sem_by_id = {s.id: s for s in semesters}
@@ -2086,16 +2139,11 @@ class TimetableGenerator:
         batch_room_map = batch_room_map or {}
         parallel_lab_group_map = parallel_lab_group_map or {}
 
-        # Cross-semester teacher pool for elective fallback:
-        # (subject_id, component_key) -> sorted teacher_ids
-        subject_component_teacher_pool: Dict[Tuple[int, str], List[int]] = {}
-        for (sem_id, subj_id, comp_key), mapped_teacher in teacher_map.items():
-            if mapped_teacher is None:
-                continue
-            pool_key = (subj_id, comp_key)
-            subject_component_teacher_pool.setdefault(pool_key, set()).add(mapped_teacher)
-        for pool_key, teacher_ids in list(subject_component_teacher_pool.items()):
-            subject_component_teacher_pool[pool_key] = sorted(teacher_ids)
+        # REMOVED: Cross-semester teacher pool for elective fallback.
+        # Previously this aggregated teachers from ALL classes for the same subject
+        # and allowed any class to pick from the pool. This caused teachers assigned
+        # to Subject Y for Class A to appear in Class D's timetable.
+        # Now elective teacher lookup is strictly class-scoped via ClassSubjectTeacher.
 
         # Build per-semester subject list, augmented by elective basket participation.
         semester_subjects_map: Dict[int, List[Subject]] = {}
@@ -2188,32 +2236,17 @@ class TimetableGenerator:
                             if teacher_id is not None:
                                 break
 
-                    # Elective fallback: if this class is missing a direct mapping for
-                    # this subject, reuse a deterministic teacher already mapped to the
-                    # same subject in other classes.
+                    # REMOVED: Cross-class elective teacher fallback.
+                    # Previously if a class had no direct mapping for an elective
+                    # subject, teachers from OTHER classes were reused. This caused
+                    # teachers to appear in wrong timetables.
+                    # Now: if no explicit ClassSubjectTeacher mapping exists for
+                    # this class + subject, the slot is left unassigned.
                     if teacher_id is None and is_elective:
-                        fallback_keys = []
-                        if teacher_key:
-                            fallback_keys.append(teacher_key)
-                        if comp_type and comp_type.value:
-                            fallback_keys.append(comp_type.value)
-                        fallback_keys.extend(["theory", "tutorial", "lab"])
-
-                        seen_keys = set()
-                        for fkey in fallback_keys:
-                            if fkey in seen_keys:
-                                continue
-                            seen_keys.add(fkey)
-                            pool = subject_component_teacher_pool.get((subject.id, fkey), [])
-                            if pool:
-                                teacher_id = pool[0]
-                                break
-
-                    # Elective fallback: subject-level teacher mapping
-                    if teacher_id is None and is_elective:
-                        if getattr(subject, "teachers", None):
-                            if subject.teachers:
-                                teacher_id = subject.teachers[0].id
+                        print(
+                            f"   [STRICT] No teacher for elective {subject.code} in "
+                            f"Class {semester.id} ({semester.name}) - leaving unassigned"
+                        )
                     
                     # 2. Read BATCH teachers (split class)
                     batch_allocs = batch_map.get(lookup_key, {})
@@ -3169,12 +3202,14 @@ class TimetableGenerator:
         state: TimetableState,
         lab_reqs: List[ComponentRequirement],
         rooms: List[Room]
-    ) -> int:
-        """Schedule regular labs as atomic 2-period blocks."""
+    ) -> List[ComponentRequirement]:
+        """Schedule regular labs as atomic 2-period blocks.
+        Returns list of failed (unscheduled) lab requirements."""
         if not lab_reqs:
-            return 0
+            return []
         
         allocations_added = 0
+        failed_reqs = []
         
         for req in sorted(lab_reqs, key=lambda r: r.hours_per_week, reverse=True):
             blocks_needed = req.hours_per_week // 2
@@ -3371,8 +3406,9 @@ class TimetableGenerator:
                         f"Assigned teacher {req.assigned_teacher_id} not available with a valid room pair."
                     )
                 self.allocation_failures.append(fail_msg)
+                failed_reqs.append(req)
         
-        return allocations_added
+        return failed_reqs
 
     def _schedule_day_based_seminars_readonly(
         self,
@@ -3480,6 +3516,203 @@ class TimetableGenerator:
 
         return allocations_added
     
+    def _retry_failed_labs_post_theory(
+        self,
+        state: TimetableState,
+        failed_reqs: List[ComponentRequirement],
+        rooms: List[Room],
+        lecture_rooms: List[Room],
+        semesters: List[Semester],
+        semester_by_id: Dict[int, Semester],
+        default_classroom_map: Dict[int, int] = None
+    ):
+        """Retry failed lab blocks by swapping out theory allocations.
+        
+        After theory fills ALL slots, some lab blocks couldn't get 2 consecutive
+        periods. This method finds 2 adjacent slots with theory classes, removes
+        them, places the lab block, then re-schedules the displaced theory classes
+        into any remaining open slots.
+        """
+        if not failed_reqs:
+            return
+        
+        default_classroom_map = default_classroom_map or {}
+        room_by_id = {r.id: r for r in rooms}
+        labs_fixed = 0
+        
+        # Clear "phantom" semester_slots entries: the theory scheduler marks
+        # free period slots as used in semester_slots for tracking, but they
+        # have no actual allocation. Remove these so the retry can use them.
+        actual_alloc_slots = {}
+        for a in state.allocations:
+            if a.semester_id not in actual_alloc_slots:
+                actual_alloc_slots[a.semester_id] = set()
+            actual_alloc_slots[a.semester_id].add((a.day, a.slot))
+        
+        for sem_id_check in state.semester_slots:
+            phantom = state.semester_slots[sem_id_check] - actual_alloc_slots.get(sem_id_check, set())
+            if phantom:
+                state.semester_slots[sem_id_check] -= phantom
+        
+        for req in failed_reqs:
+            sem_id = req.semester_id
+            teacher_id = req.assigned_teacher_id
+            if not teacher_id:
+                continue
+            
+            blocks_needed = req.hours_per_week // 2
+            blocks_placed = 0
+            
+            for _ in range(blocks_needed):
+                placed = False
+                
+                # Try each valid lab block position
+                candidate_swaps = []
+                for day in range(DAYS_PER_WEEK):
+                    for (start_slot, end_slot) in self.valid_lab_blocks:
+                        # Check teacher is free at BOTH slots
+                        if not (state.is_teacher_eligible(teacher_id, day, start_slot) and
+                                state.is_teacher_eligible(teacher_id, day, end_slot)):
+                            continue
+                        
+                        # Check if semester has THEORY (swappable) allocations at these slots
+                        alloc_s1 = None
+                        alloc_s2 = None
+                        for a in state.allocations:
+                            if a.semester_id == sem_id and a.day == day and a.slot == start_slot:
+                                if a.component_type.value == 'theory' or a.component_type.value == 'tutorial':
+                                    alloc_s1 = a
+                            if a.semester_id == sem_id and a.day == day and a.slot == end_slot:
+                                if a.component_type.value == 'theory' or a.component_type.value == 'tutorial':
+                                    alloc_s2 = a
+                        
+                        # Both slots must have swappable theory classes (or be free)
+                        s1_free = state.is_semester_free(sem_id, day, start_slot)
+                        s2_free = state.is_semester_free(sem_id, day, end_slot)
+                        
+                        if (s1_free or alloc_s1) and (s2_free or alloc_s2):
+                            # Find a lab-type room
+                            lab_room = None
+                            if req.assigned_room_id:
+                                lab_room = next(
+                                    (r for r in rooms
+                                     if r.id == req.assigned_room_id
+                                     and r.capacity >= req.min_room_capacity
+                                     and state.is_room_free(r.id, day, start_slot)
+                                     and state.is_room_free(r.id, day, end_slot)),
+                                    None
+                                )
+                            if not lab_room:
+                                lab_room = next(
+                                    (r for r in rooms
+                                     if r.capacity >= req.min_room_capacity
+                                     and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
+                                     and state.is_room_free(r.id, day, start_slot)
+                                     and state.is_room_free(r.id, day, end_slot)),
+                                    None
+                                )
+                            
+                            if lab_room:
+                                to_displace = []
+                                if alloc_s1 and not s1_free:
+                                    to_displace.append(alloc_s1)
+                                if alloc_s2 and not s2_free:
+                                    to_displace.append(alloc_s2)
+                                candidate_swaps.append((day, start_slot, end_slot, lab_room, to_displace))
+                
+                # Sort candidates: prefer those displacing fewer theory classes
+                candidate_swaps.sort(key=lambda x: len(x[4]))
+                
+                for day, start_slot, end_slot, lab_room, to_displace in candidate_swaps:
+                    # Remove displaced theory allocations from state
+                    for a in to_displace:
+                        state.remove_allocation(a)
+                    
+                    # Place the lab block
+                    for idx, slot in enumerate([start_slot, end_slot]):
+                        entry = AllocationEntry(
+                            semester_id=sem_id,
+                            subject_id=req.subject_id,
+                            teacher_id=teacher_id,
+                            room_id=lab_room.id,
+                            day=day,
+                            slot=slot,
+                            component_type=req.component_type,
+                            academic_component=req.academic_component,
+                            is_lab_continuation=(idx == 1)
+                        )
+                        state.add_allocation(entry)
+                    
+                    # Try to re-schedule displaced theory into open slots
+                    reschedule_ok = True
+                    for displaced in to_displace:
+                        rescheduled = False
+                        for rs in range(SLOTS_PER_DAY):
+                            for rd in range(DAYS_PER_WEEK):
+                                if not state.is_semester_free(sem_id, rd, rs):
+                                    continue
+                                if not state.is_teacher_eligible(displaced.teacher_id, rd, rs):
+                                    continue
+                                # Find a room for the displaced theory
+                                d_room = None
+                                default_room_id = default_classroom_map.get(sem_id)
+                                if default_room_id:
+                                    dr = room_by_id.get(default_room_id)
+                                    if dr and state.is_room_free(dr.id, rd, rs):
+                                        d_room = dr
+                                if not d_room:
+                                    d_room = next(
+                                        (r for r in lecture_rooms
+                                         if r.capacity >= 30
+                                         and state.is_room_free(r.id, rd, rs)),
+                                        None
+                                    )
+                                if d_room:
+                                    new_entry = AllocationEntry(
+                                        semester_id=displaced.semester_id,
+                                        subject_id=displaced.subject_id,
+                                        teacher_id=displaced.teacher_id,
+                                        room_id=d_room.id,
+                                        day=rd,
+                                        slot=rs,
+                                        component_type=displaced.component_type,
+                                        academic_component=displaced.academic_component
+                                    )
+                                    state.add_allocation(new_entry)
+                                    rescheduled = True
+                                    break
+                            if rescheduled:
+                                break
+                        if not rescheduled:
+                            reschedule_ok = False
+                    
+                    if reschedule_ok:
+                        blocks_placed += 1
+                        labs_fixed += 1
+                        sem = semester_by_id.get(sem_id)
+                        print(f"      [LAB-RETRY] Placed {req.subject_code} lab for {sem.name if sem else sem_id} at Day {day} Slots {start_slot}-{end_slot}")
+                        placed = True
+                        break
+                    else:
+                        # Rollback: remove lab, restore displaced
+                        lab_allocs = [
+                            a for a in state.allocations
+                            if a.semester_id == sem_id
+                            and a.subject_id == req.subject_id
+                            and a.day == day
+                            and a.slot in (start_slot, end_slot)
+                        ]
+                        for a in lab_allocs:
+                            state.remove_allocation(a)
+                        for a in to_displace:
+                            state.add_allocation(a)
+                
+                if not placed:
+                    break  # Can't place any more blocks for this req
+        
+        if labs_fixed > 0:
+            print(f"      [LAB-RETRY] Fixed {labs_fixed} lab block(s) via theory displacement")
+
     def _schedule_theory_readonly(
         self,
         state: TimetableState,
@@ -3692,33 +3925,149 @@ class TimetableGenerator:
                                 filled = True
                                 break
                     
-                    # FREE PERIOD - truly no eligible subject/teacher
+                    # FREE PERIOD determination:
+                    # Only create a TRUE free period when:
+                    #   1. No subjects remain (available is empty), OR
+                    #   2. Subjects exist but ALL failures are "No Room" (unresolvable now and later).
+                    # If all failures are "teacher busy" (shared teacher in same dept batch),
+                    # DEFER the slot - leave it open so a later iteration can fill it.
+                    # This prevents cascading free periods for I-B/I-F and similar shared-teacher cases.
                     if not filled:
-                        # DIAGNOSTIC: Why failed?
-                        if available and sem_id not in state.semester_slots.get(sem_id, set()):
-                            reasons = []
-                            for (s_sem, s_subj, s_comp), remaining in available:
-                                req = req_lookup.get((s_sem, s_subj, s_comp))
-                                if not req: continue
-                                teacher_busy = not state.is_teacher_eligible(req.assigned_teacher_id, day, slot)
-                                if teacher_busy:
-                                    reasons.append(f"Subj {req.subject_name}: Teacher {req.assigned_teacher_id} Busy")
-                                else:
-                                    reasons.append(f"Subj {req.subject_name}: No Room")
-                            
-                            fail_summary = f"[FREE] Class {sem_id} Day {day} Slot {slot}: {', '.join(reasons[:3])}"
-                            if len(reasons) > 3: fail_summary += "..."
-                            
-                            # Only log unique summaries to avoid spam
-                            if fail_summary not in self.allocation_failures:
-                                self.allocation_failures.append(fail_summary)
-
-                        if sem_id not in state.semester_slots:
-                            state.semester_slots[sem_id] = set()
-                        state.semester_slots[sem_id].add((day, slot))
-                        free_periods += 1
-                        sem_free += 1
+                        if not available:
+                            # Truly no subjects left - genuine free period
+                            if sem_id not in state.semester_slots:
+                                state.semester_slots[sem_id] = set()
+                            state.semester_slots[sem_id].add((day, slot))
+                            free_periods += 1
+                            sem_free += 1
+                        else:
+                            # Determine WHY scheduling failed
+                            all_teacher_busy = all(
+                                not state.is_teacher_eligible(
+                                    req_lookup[(s_sem, s_subj, s_comp)].assigned_teacher_id, day, slot
+                                )
+                                for (s_sem, s_subj, s_comp), _ in available
+                                if (s_sem, s_subj, s_comp) in req_lookup
+                            )
+                            if all_teacher_busy:
+                                # DEFER: teacher busy with another class in this batch.
+                                # Leave slot open - do NOT add to semester_slots.
+                                # Post-iteration pass will attempt to fill it.
+                                pass
+                            else:
+                                # At least one failure is "No Room" - emit free period
+                                reasons = []
+                                for (s_sem, s_subj, s_comp), remaining in available:
+                                    req = req_lookup.get((s_sem, s_subj, s_comp))
+                                    if not req: continue
+                                    teacher_busy = not state.is_teacher_eligible(req.assigned_teacher_id, day, slot)
+                                    if teacher_busy:
+                                        reasons.append(f"Subj {req.subject_name}: Teacher {req.assigned_teacher_id} Busy")
+                                    else:
+                                        reasons.append(f"Subj {req.subject_name}: No Room")
+                                fail_summary = f"[FREE] Class {sem_id} Day {day} Slot {slot}: {', '.join(reasons[:3])}"
+                                if len(reasons) > 3: fail_summary += "..."
+                                if fail_summary not in self.allocation_failures:
+                                    self.allocation_failures.append(fail_summary)
+                                if sem_id not in state.semester_slots:
+                                    state.semester_slots[sem_id] = set()
+                                state.semester_slots[sem_id].add((day, slot))
+                                free_periods += 1
+                                sem_free += 1
             
+            # ---------------------------------------------------------------
+            # POST-ITERATION PASS: Fill remaining hours deferred by teacher conflicts.
+            # When teachers are shared across sections in the same dept batch,
+            # some slots are deferred (left open) during the main iteration.
+            # We now try ALL open (day, slot) pairs to fill remaining subject hours.
+            # ---------------------------------------------------------------
+            remaining_keys = [
+                k for k in hour_counters
+                if k[0] == sem_id and hour_counters[k] > 0
+            ]
+            if remaining_keys:
+                open_slots = [
+                    (day, slot)
+                    for slot in range(SLOTS_PER_DAY)
+                    for day in range(DAYS_PER_WEEK)
+                    if state.is_semester_free(sem_id, day, slot)
+                ]
+                random.shuffle(open_slots)
+
+                for day, slot in open_slots:
+                    still_remaining = [k for k in remaining_keys if hour_counters[k] > 0]
+                    if not still_remaining:
+                        break
+
+                    for key in still_remaining:
+                        req = req_lookup.get(key)
+                        if not req:
+                            continue
+
+                        teacher_id = req.assigned_teacher_id
+                        if not state.is_teacher_eligible(teacher_id, day, slot):
+                            continue
+
+                        room = None
+                        default_room_id = default_classroom_map.get(sem_id)
+                        if default_room_id and not req.assigned_room_id:
+                            default_room = room_by_id.get(default_room_id)
+                            if (default_room
+                                    and default_room.capacity >= req.min_room_capacity
+                                    and (not req.preferred_room_types or default_room.room_type in req.preferred_room_types)
+                                    and state.is_room_free(default_room.id, day, slot)):
+                                room = default_room
+
+                        if room is None and req.assigned_room_id:
+                            room = next(
+                                (r for r in rooms
+                                 if r.id == req.assigned_room_id
+                                 and r.capacity >= req.min_room_capacity
+                                 and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
+                                 and state.is_room_free(r.id, day, slot)),
+                                None
+                            )
+                        elif room is None:
+                            room = next(
+                                (r for r in rooms
+                                 if r.capacity >= req.min_room_capacity
+                                 and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
+                                 and state.is_room_free(r.id, day, slot)),
+                                None
+                            )
+
+                        if room:
+                            entry = AllocationEntry(
+                                semester_id=sem_id,
+                                subject_id=req.subject_id,
+                                teacher_id=teacher_id,
+                                room_id=room.id,
+                                day=day,
+                                slot=slot,
+                                component_type=req.component_type,
+                                academic_component=req.academic_component
+                            )
+                            state.add_allocation(entry)
+                            hour_counters[key] -= 1
+                            allocations_added += 1
+                            sem_filled += 1
+                            break
+
+                # Any hours still remaining truly cannot be scheduled.
+                truly_remaining = sum(hour_counters[k] for k in remaining_keys if hour_counters[k] > 0)
+                if truly_remaining > 0:
+                    remaining_subj_names = [
+                        req_lookup[k].subject_name
+                        for k in remaining_keys
+                        if hour_counters[k] > 0 and k in req_lookup
+                    ]
+                    fail_msg = (
+                        f"[POST-PASS] Class {sem_id}: {truly_remaining} hours unschedulable. "
+                        f"Subjects: {', '.join(remaining_subj_names[:5])}"
+                    )
+                    if fail_msg not in self.allocation_failures:
+                        self.allocation_failures.append(fail_msg)
+
             if sem_free > 0:
                 print(f"         -> {sem_filled} subjects + {sem_free} FREE")
             else:

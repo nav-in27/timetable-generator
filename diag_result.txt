@@ -1,0 +1,402 @@
+SEMESTERS:
+  ID=1 Sec=A Year=2 SemNum=4 Dept=2(CSE-Artifical Intelligence and Machine Learning)
+  ID=2 Sec=A Year=2 SemNum=4 Dept=3(Artificial Intelligence and DataScience)
+  ID=3 Sec=B Year=2 SemNum=4 Dept=3(Artificial Intelligence and DataScience)
+  ID=4 Sec=A Year=2 SemNum=4 Dept=4(Information Technology)
+  ID=5 Sec=A Year=2 SemNum=4 Dept=1(Computer Science & Engineering)
+  ID=6 Sec=B Year=2 SemNum=4 Dept=1(Computer Science & Engineering)
+  ID=7 Sec=C Year=2 SemNum=4 Dept=1(Computer Science & Engineering)
+  ID=8 Sec=A Year=2 SemNum=4 Dept=6(Electronics and Communication Engineering)
+  ID=9 Sec=B Year=2 SemNum=4 Dept=6(Electronics and Communication Engineering)
+  ID=10 Sec=A Year=2 SemNum=4 Dept=9(Electrical and Electronics Engineering)
+  ID=11 Sec=A Year=2 SemNum=4 Dept=7(Mechanical Engineering)
+  ID=12 Sec=A Year=2 SemNum=4 Dept=8(Civil Engineering)
+  ID=13 Sec=A Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=14 Sec=B Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=15 Sec=C Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=16 Sec=D Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=17 Sec=E Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=18 Sec=F Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=19 Sec=G Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=20 Sec=H Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=21 Sec=I Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=22 Sec=J Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=23 Sec=K Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=24 Sec=L Year=1 SemNum=2 Dept=10(SCIENCE AND HUMANITIES)
+  ID=25 Sec=A Year=3 SemNum=6 Dept=None(N/A)
+
+SHARED TEACHERS BETWEEN B AND F SECTIONS:
+  ** CONFLICT: Teacher 33 (Roshan Josua) assigned to BOTH B and F **
+     I-B: Database Management System [ComponentType.THEORY]
+     I-B: Database Management System [ComponentType.LAB]
+     I-B: Library [ComponentType.TUTORIAL]
+     I-F: Python Programming [ComponentType.THEORY]
+     I-F: Python Programming [ComponentType.LAB]
+  ** CONFLICT: Teacher 80 (Nithya) assigned to BOTH B and F **
+     I-B: Electronics Circuits [ComponentType.THEORY]
+     I-B: Electronics Circuits LAB [ComponentType.LAB]
+     I-F: Electronics Circuits [ComponentType.THEORY]
+     I-F: Electronics Circuits LAB [ComponentType.LAB]
+  ** CONFLICT: Teacher 153 (Surendhar) assigned to BOTH B and F **
+     I-B: Aptitude [ComponentType.THEORY]
+     I-B: Aptitude [ComponentType.THEORY]
+     I-F: CSD (A) [ComponentType.THEORY]
+  ** CONFLICT: Teacher 156 (Sumathra) assigned to BOTH B and F **
+     I-B: Communication [ComponentType.THEORY]
+     I-F: CSD (C) [ComponentType.THEORY]
+  ** CONFLICT: Teacher 161 (ManiKandan) assigned to BOTH B and F **
+     I-B: Probability and Statistics [ComponentType.THEORY]
+     I-F: Engineering Physics [ComponentType.THEORY]
+  ** CONFLICT: Teacher 166 (Jayakumar) assigned to BOTH B and F **
+     I-B: Business Communication [ComponentType.LAB]
+     I-F: Professional English -5 [ComponentType.THEORY]
+  ** CONFLICT: Teacher 173 (Devahi) assigned to BOTH B and F **
+     I-B: Tamil And Technology [ComponentType.THEORY]
+     I-F: Tamil And Technology [ComponentType.THEORY]
+  ** CONFLICT: Teacher 183 (Nishanth) assigned to BOTH B and F **
+     I-B: Basic Japanese-1 [ComponentType.THEORY]
+     I-F: Basic Japanese -3 [ComponentType.THEORY]
+  ** CONFLICT: Teacher 187 (Spanish Teacher) assigned to BOTH B and F **
+     I-B: Basic Spanish [ComponentType.THEORY]
+     I-F: Basic Spanish-1 [ComponentType.THEORY]
+
+TEACHER HOUR LOADS (B and F teachers):
+  Mr.Venkathesh (ID=19): total_h=5, max_h=20
+    Sec B: Probability and Statistics [theory]=5h
+  Bharathi (ID=20): total_h=8, max_h=20
+    Sec A: Fundamentals of Datascience using R [theory]=3h
+    Sec A: Library [tutorial]=1h
+    Sec B: Python Programming For Data Science [theory]=4h
+  Santhoshini (ID=25): total_h=5, max_h=20
+    Sec B: Fundamentals of Datascience using R [theory]=3h
+    Sec B: Fundamentals of Datascience using R [lab]=2h
+  Avudaiappan (ID=27): total_h=21, max_h=20
+    Sec A: Digital Marketing [theory]=3h
+    Sec A: Digital Marketing [theory]=3h
+    Sec B: Digital Marketing [theory]=3h
+    Sec A: Digital Marketing [theory]=3h
+    Sec A: Digital Marketing [theory]=3h
+    Sec B: Digital Marketing [theory]=3h
+    Sec C: Digital Marketing [theory]=3h
+  Deena Rose (ID=29): total_h=27, max_h=20
+    Sec A: Business Analytics  [theory]=3h
+    Sec A: Business Analytics  [theory]=3h
+    Sec B: Business Analytics  [theory]=3h
+    Sec A: Business Analytics  [theory]=3h
+    Sec A: Business Analytics  [theory]=3h
+    Sec B: Business Analytics  [theory]=3h
+    Sec C: Business Analytics  [theory]=3h
+    Sec B: Python Programming For Data Science [theory]=4h
+    Sec B: Python Programming for Data Science LAB [lab]=2h
+  Praveen Kumar (ID=31): total_h=10, max_h=20
+    Sec B: Data Visualization using PowerBI [theory]=3h
+    Sec B: Data Visualization using PowerBI [lab]=2h
+    Sec A: Foundation of Python Programming And SQL [theory]=3h
+    Sec A: Foundation of Python Programming And SQL [lab]=2h
+  Roshan Josua (ID=33): total_h=15, max_h=20
+    Sec B: Database Management System [theory]=3h
+    Sec B: Database Management System [lab]=2h
+    Sec B: Library [tutorial]=1h
+    Sec F: Python Programming [theory]=3h
+    Sec F: Python Programming [lab]=2h
+    Sec A: Python Programming For Data Science [theory]=4h
+  Ganga Naidu (ID=36): total_h=5, max_h=20
+    Sec B: Data Structure [theory]=3h
+    Sec B: Data Structure [lab]=2h
+  Swetha Barathi (ID=37): total_h=5, max_h=20
+    Sec B: Foundation of Python Programming And SQL [theory]=3h
+    Sec B: Foundation of Python Programming And SQL [lab]=2h
+  Sakthivel (ID=43): total_h=35, max_h=20
+    Sec A: Agile Scrum Master [theory]=3h
+    Sec A: Agile Scrum Master [lab]=2h
+    Sec A: Agile Scrum Master [theory]=3h
+    Sec A: Agile Scrum Master [theory]=3h
+    Sec B: Agile Scrum Master [theory]=3h
+    Sec A: Agile Scrum Master [theory]=3h
+    Sec B: Agile Scrum Master [theory]=3h
+    Sec C: Agile Scrum Master [theory]=3h
+    Sec A: Agile Scrum Master [lab]=2h
+    Sec A: Agile Scrum Master [lab]=2h
+    Sec B: Agile Scrum Master [lab]=2h
+    Sec A: Agile Scrum Master [lab]=2h
+    Sec B: Agile Scrum Master [lab]=2h
+    Sec C: Agile Scrum Master [lab]=2h
+  Vishnu Priya (ID=46): total_h=5, max_h=20
+    Sec F: Data Structure [theory]=3h
+    Sec F: Data Structure [lab]=2h
+  Sathya (ID=50): total_h=6, max_h=20
+    Sec B: Operating Systems [theory]=4h
+    Sec B: Operating Systems Lab [lab]=2h
+  Valli Priyadharshini (ID=53): total_h=35, max_h=20
+    Sec A: Microsoft Azure [theory]=3h
+    Sec A: Microsoft Azure [lab]=2h
+    Sec A: Microsoft Azure [theory]=3h
+    Sec A: Microsoft Azure [lab]=2h
+    Sec B: Microsoft Azure [lab]=2h
+    Sec B: Microsoft Azure [theory]=3h
+    Sec A: Microsoft Azure [theory]=3h
+    Sec A: Microsoft Azure [lab]=2h
+    Sec A: Microsoft Azure [theory]=3h
+    Sec B: Microsoft Azure [lab]=2h
+    Sec A: Microsoft Azure [lab]=2h
+    Sec B: Microsoft Azure [theory]=3h
+    Sec C: Microsoft Azure [theory]=3h
+    Sec C: Microsoft Azure [lab]=2h
+  Prassana (ID=55): total_h=7, max_h=20
+    Sec B: Agile Develoopment Methodology [theory]=3h
+    Sec B: Agile Development Methodolgy Lab [lab]=4h
+  Rajendra Kanammal (ID=62): total_h=6, max_h=20
+    Sec B: Database Management System [theory]=3h
+    Sec B: Database Management System [lab]=2h
+    Sec B: Library [tutorial]=1h
+  Saravanan (ID=67): total_h=35, max_h=20
+    Sec A: Devops [theory]=3h
+    Sec A: Devops [lab]=2h
+    Sec A: Devops [theory]=3h
+    Sec A: Devops [lab]=2h
+    Sec B: Devops [theory]=3h
+    Sec B: Devops [lab]=2h
+    Sec A: Devops [theory]=3h
+    Sec A: Devops [lab]=2h
+    Sec A: Devops [theory]=3h
+    Sec A: Devops [lab]=2h
+    Sec B: Devops [theory]=3h
+    Sec B: Devops [lab]=2h
+    Sec C: Devops [theory]=3h
+    Sec C: Devops [lab]=2h
+  Punitha (ID=72): total_h=8, max_h=20
+    Sec A: Transmission Lines and Waveguides [theory]=2h
+    Sec A: Transmission Lines and Waveguides [tutorial]=2h
+    Sec B: Transmission Lines and Waveguides [theory]=2h
+    Sec B: Transmission Lines and Waveguides [tutorial]=2h
+  Geerthana (ID=74): total_h=6, max_h=20
+    Sec A: Integrated Optoelectronic Devices [theory]=3h
+    Sec B: Integrated Optoelectronic Devices [theory]=3h
+  Manjunathan (ID=75): total_h=6, max_h=20
+    Sec A: Privacy and Security in IOT [theory]=3h
+    Sec B: Privacy and Security in IOT [theory]=3h
+  Nithya (ID=80): total_h=40, max_h=20
+    Sec A: COMPUTER NETWORKS [theory]=4h
+    Sec A: Electronics Circuits [theory]=4h
+    Sec B: Electronics Circuits [theory]=4h
+    Sec C: Electronics Circuits [theory]=4h
+    Sec D: Electronics Circuits [theory]=4h
+    Sec E: Electronics Circuits [theory]=4h
+    Sec F: Electronics Circuits [theory]=4h
+    Sec A: Electronics Circuits LAB [lab]=2h
+    Sec B: Electronics Circuits LAB [lab]=2h
+    Sec C: Electronics Circuits LAB [lab]=2h
+    Sec D: Electronics Circuits LAB [lab]=2h
+    Sec E: Electronics Circuits LAB [lab]=2h
+    Sec F: Electronics Circuits LAB [lab]=2h
+  Gowri (ID=81): total_h=8, max_h=20
+    Sec A: Analog and Digital Communication [theory]=3h
+    Sec A: Analog and Digital Communication [tutorial]=1h
+    Sec B: Analog and Digital Communication [theory]=3h
+    Sec B: Analog and Digital Communication [tutorial]=1h
+  Kavitha (ID=82): total_h=3, max_h=20
+    Sec B: Microcontrollers and Interfacing [theory]=2h
+    Sec B: Microcontrollers and Interfacing [tutorial]=1h
+  Syed Akbhar (ID=83): total_h=6, max_h=20
+    Sec B: Digital Signal Processing [theory]=3h
+    Sec B: Digital Signal Processing [lab]=2h
+    Sec B: Digital Signal Processing [tutorial]=1h
+  Raja (ID=84): total_h=4, max_h=20
+    Sec B: Database Management System [theory]=2h
+    Sec B: Database Management System [lab]=2h
+  Saranya (ID=133): total_h=7, max_h=20
+    Sec F: Engineering Mathematics-II [theory]=4h
+    Sec F: Engineering Mathematics-II [lab]=2h
+    Sec F: Library-1 [theory]=1h
+  Malathi (ID=139): total_h=6, max_h=20
+    Sec B: Engineering Mathematics-II [theory]=4h
+    Sec B: Engineering Mathematics-II [lab]=2h
+  Sangeetha (ID=148): total_h=9, max_h=19
+    Sec B: COMPUTER NETWORKS [theory]=4h
+    Sec D: Python Programming [theory]=3h
+    Sec D: Python Programming [lab]=2h
+  Roshini (ID=152): total_h=8, max_h=20
+    Sec A: Communication [theory]=1h
+    Sec A: Communication [theory]=1h
+    Sec B: Communication [theory]=1h
+    Sec A: Communication [theory]=1h
+    Sec B: CSD (C) [theory]=1h
+    Sec C: CSD (C) [theory]=1h
+    Sec L: CSD (C) [theory]=1h
+    Sec D: CSD (C) [theory]=1h
+  Surendhar (ID=153): total_h=12, max_h=20
+    Sec A: Aptitude [theory]=1h
+    Sec A: Aptitude [theory]=1h
+    Sec B: Aptitude [theory]=1h
+    Sec A: Aptitude [theory]=1h
+    Sec B: Aptitude [theory]=1h
+    Sec A: Aptitude [theory]=1h
+    Sec C: CSD (A) [theory]=1h
+    Sec L: CSD (A) [theory]=1h
+    Sec I: CSD (A) [theory]=1h
+    Sec H: CSD (A) [theory]=1h
+    Sec F: CSD (A) [theory]=1h
+    Sec E: CSD (A) [theory]=1h
+  Gayatri (ID=154): total_h=11, max_h=20
+    Sec A: Aptitude [theory]=1h
+    Sec B: Communication [theory]=1h
+    Sec C: Aptitude [theory]=1h
+    Sec A: Aptitude [theory]=1h
+    Sec A: Aptitude [theory]=1h
+    Sec A: CSD (A) [theory]=1h
+    Sec B: CSD (A) [theory]=1h
+    Sec K: CSD (A) [theory]=1h
+    Sec J: CSD (A) [theory]=1h
+    Sec G: CSD (A) [theory]=1h
+    Sec D: CSD (A) [theory]=1h
+  New Teacher 1 (ID=155): total_h=2, max_h=20
+    Sec A: Communication [theory]=1h
+    Sec B: Aptitude [theory]=1h
+  Sumathra (ID=156): total_h=10, max_h=20
+    Sec A: Aptitude [theory]=1h
+    Sec B: Communication [theory]=1h
+    Sec C: Communication [theory]=1h
+    Sec A: Communication [theory]=1h
+    Sec A: Communication [theory]=1h
+    Sec A: Communication [theory]=1h
+    Sec K: CSD (C) [theory]=1h
+    Sec I: CSD (C) [theory]=1h
+    Sec H: CSD (C) [theory]=1h
+    Sec F: CSD (C) [theory]=1h
+  Vinoth (ID=158): total_h=23, max_h=20
+    Sec B: Business Communication [lab]=4h
+    Sec A: Professional English-2 [theory]=3h
+    Sec B: Professional English-2 [theory]=3h
+    Sec D: Professional English-2 [theory]=3h
+    Sec J: Professional English-2 [theory]=3h
+    Sec K: Professional English-2 [theory]=3h
+    Sec L: Professional English-2 [theory]=3h
+    Sec D: Library-1 [theory]=1h
+  Prabakaran (ID=159): total_h=22, max_h=20
+    Sec A: Business Communication [lab]=4h
+    Sec A: Professional English-1 [theory]=3h
+    Sec B: Professional English-1 [theory]=3h
+    Sec D: Professional English-1 [theory]=3h
+    Sec J: Professional English-1 [theory]=3h
+    Sec K: Professional English-1 [theory]=3h
+    Sec L: Professional English-1 [theory]=3h
+  ManiKandan (ID=161): total_h=9, max_h=20
+    Sec B: Probability and Statistics [theory]=5h
+    Sec F: Engineering Physics [theory]=4h
+  DivyaBarathi (ID=162): total_h=35, max_h=20
+    Sec A: Software Development [theory]=3h
+    Sec A: Software Development [lab]=2h
+    Sec A: Software Development [theory]=3h
+    Sec A: Software Development [lab]=2h
+    Sec B: Software Development [theory]=3h
+    Sec B: Software Development [lab]=2h
+    Sec A: Software Development [theory]=3h
+    Sec A: Software Development [lab]=2h
+    Sec A: Software Development [theory]=3h
+    Sec A: Software Development [lab]=2h
+    Sec B: Software Development [theory]=3h
+    Sec B: Software Development [lab]=2h
+    Sec C: Software Development [theory]=3h
+    Sec C: Software Development [lab]=2h
+  Karckey (ID=163): total_h=10, max_h=20
+    Sec B: Artificial Intelligence and Machine Learning [theory]=3h
+    Sec B: Artificial Intelligence and Machine Learning Lab [lab]=2h
+    Sec H: Data Structure [theory]=3h
+    Sec H: Data Structure [lab]=2h
+  Jeevanantham (ID=165): total_h=22, max_h=20
+    Sec A: Business Communication [lab]=4h
+    Sec C: Professional English-3 [theory]=3h
+    Sec E: Professional English-3 [theory]=3h
+    Sec F: Professional English-3 [theory]=3h
+    Sec G: Professional English-3 [theory]=3h
+    Sec H: Professional English-3 [theory]=3h
+    Sec I: Professional English-3 [theory]=3h
+  Jayakumar (ID=166): total_h=22, max_h=20
+    Sec B: Business Communication [lab]=4h
+    Sec C: Professional English -5 [theory]=3h
+    Sec E: Professional English -5 [theory]=3h
+    Sec F: Professional English -5 [theory]=3h
+    Sec G: Professional English -5 [theory]=3h
+    Sec H: Professional English -5 [theory]=3h
+    Sec I: Professional English -5 [theory]=3h
+  Arul Doss (ID=167): total_h=23, max_h=20
+    Sec A: Business Communication [lab]=4h
+    Sec C: Professional English-4 [theory]=3h
+    Sec E: Professional English-4 [theory]=3h
+    Sec F: Professional English-4 [theory]=3h
+    Sec G: Professional English-4 [theory]=3h
+    Sec H: Professional English-4 [theory]=3h
+    Sec I: Professional English-4 [theory]=3h
+    Sec H: Library-1 [theory]=1h
+  Arul Mani (ID=171): total_h=9, max_h=20
+    Sec A: Engineering Physics LAB [lab]=2h
+    Sec B: Engineering Physics [theory]=4h
+    Sec B: Engineering Physics LAB [lab]=2h
+    Sec B: Library-1 [theory]=1h
+  Bharath (ID=172): total_h=6, max_h=20
+    Sec A: Engineering Physics [theory]=4h
+    Sec F: Engineering Physics LAB [lab]=2h
+  Devahi (ID=173): total_h=13, max_h=20
+    Sec A: Tamil And Technology [theory]=1h
+    Sec C: Tamil And Technology [theory]=1h
+    Sec D: Tamil And Technology [theory]=1h
+    Sec E: Tamil And Technology [theory]=1h
+    Sec F: Tamil And Technology [theory]=1h
+    Sec G: Tamil And Technology [theory]=1h
+    Sec H: Tamil And Technology [theory]=1h
+    Sec I: Tamil And Technology [theory]=1h
+    Sec J: Tamil And Technology [theory]=1h
+    Sec K: Tamil And Technology [theory]=1h
+    Sec L: Tamil And Technology [theory]=1h
+    Sec A: Library-1 [theory]=1h
+    Sec B: Tamil And Technology [theory]=1h
+  Nishanth (ID=183): total_h=36, max_h=20
+    Sec A: Basic Japanese-1 [theory]=3h
+    Sec B: Basic Japanese-1 [theory]=3h
+    Sec D: Basic Japanese-1 [theory]=3h
+    Sec J: Basic Japanese-1 [theory]=3h
+    Sec K: Basic Japanese-1 [theory]=3h
+    Sec L: Basic Japanese-1 [theory]=3h
+    Sec C: Basic Japanese -3 [theory]=3h
+    Sec E: Basic Japanese -3 [theory]=3h
+    Sec F: Basic Japanese -3 [theory]=3h
+    Sec G: Basic Japanese -3 [theory]=3h
+    Sec H: Basic Japanese -3 [theory]=3h
+    Sec I: Basic Japanese -3 [theory]=3h
+  Koushika (ID=184): total_h=18, max_h=20
+    Sec A: Basic Japanese -2 [theory]=3h
+    Sec B: Basic Japanese -2 [theory]=3h
+    Sec D: Basic Japanese -2 [theory]=3h
+    Sec J: Basic Japanese -2 [theory]=3h
+    Sec K: Basic Japanese -2 [theory]=3h
+    Sec L: Basic Japanese -2 [theory]=3h
+  German Teacher (ID=185): total_h=18, max_h=20
+    Sec A: Basic German-1 [theory]=3h
+    Sec D: Basic German-1 [theory]=3h
+    Sec J: Basic German-1 [theory]=3h
+    Sec K: Basic German-1 [theory]=3h
+    Sec L: Basic German-1 [theory]=3h
+    Sec B: Basic German-1 [theory]=3h
+  German Teacher 2 (ID=186): total_h=18, max_h=20
+    Sec C: Basic German -2 [theory]=3h
+    Sec E: Basic German -2 [theory]=3h
+    Sec F: Basic German -2 [theory]=3h
+    Sec G: Basic German -2 [theory]=3h
+    Sec H: Basic German -2 [theory]=3h
+    Sec I: Basic German -2 [theory]=3h
+  Spanish Teacher (ID=187): total_h=36, max_h=20
+    Sec A: Basic Spanish [theory]=3h
+    Sec B: Basic Spanish [theory]=3h
+    Sec D: Basic Spanish [theory]=3h
+    Sec J: Basic Spanish [theory]=3h
+    Sec K: Basic Spanish [theory]=3h
+    Sec L: Basic Spanish [theory]=3h
+    Sec C: Basic Spanish-1 [theory]=3h
+    Sec E: Basic Spanish-1 [theory]=3h
+    Sec F: Basic Spanish-1 [theory]=3h
+    Sec G: Basic Spanish-1 [theory]=3h
+    Sec H: Basic Spanish-1 [theory]=3h
+    Sec I: Basic Spanish-1 [theory]=3h
+  Sabarish (ID=188): total_h=6, max_h=20
+    Sec F: Electronics Circuits Analysis [theory]=4h
+    Sec F: Electronics Circuits Analysis LAB [lab]=2h

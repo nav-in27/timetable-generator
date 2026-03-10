@@ -1,0 +1,58 @@
+
+      [LAB-RETRY-DBG] 
+Trying GEA1111 sem=17 
+teacher=176 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=13 
+teacher_skip=4 
+theory_skip=8 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=54
+      [LAB-RETRY] 
+Placed GEA1111 lab for 
+I-E at Day 3 Slots 5-6
+      [LAB-RETRY-DBG] 
+Trying GEA1121 sem=18 
+teacher=133 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=14 
+teacher_skip=6 
+theory_skip=5 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=52
+      [LAB-RETRY] 
+Placed GEA1121 lab for 
+I-F at Day 1 Slots 5-6
+      [LAB-RETRY-DBG] 
+Trying GEA1111 sem=18 
+teacher=176 
+blocks_needed=1 
+hours_per_week=2
+      [LAB-RETRY-DBG] 
+Candidates=13 
+teacher_skip=6 
+theory_skip=6 
+room_skip=0 min_cap=60 
+pref_types=[<RoomType.L
+AB: 'lab'>] 
+assigned_room=54
+      [LAB-RETRY] 
+Placed GEA1111 lab for 
+I-F at Day 4 Slots 5-6
+      [LAB-RETRY] 
+Fixed 3 lab block(s) 
+via theory displacement
+Lab-retry messages: 
+(should appear above 
+if retry ran)
+I-F allocs: 35
+
+
