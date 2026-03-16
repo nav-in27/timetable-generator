@@ -218,6 +218,6 @@ Contributions are welcome! Feel free to:
 
 ---
 
-**⭐ Star this repo if you find it helpful!**
+**⭐ Star this repo if you find it helpful!*
 
 Built with ❤️ using FastAPI + React | [GitHub](https://github.com/nav-in27/timetable-generator)
