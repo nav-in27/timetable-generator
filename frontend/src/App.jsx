@@ -24,6 +24,10 @@ import MasterLabTimetablePage from './pages/MasterLabTimetablePage';
 import TeacherLoadDashboard from './pages/TeacherLoadDashboard';
 import RoomAvailabilityPage from './pages/RoomAvailabilityPage';
 
+import FacultyAssignmentPage from './pages/FacultyAssignmentPage';
+import FacultyWorkloadPage from './pages/FacultyWorkloadPage';
+import FeasibilityPage from './pages/FeasibilityPage';
+
 function App() {
   return (
     <ErrorBoundary>
@@ -50,6 +54,10 @@ function App() {
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/master-lab" element={<MasterLabTimetablePage />} />
                 <Route path="/room-availability" element={<RoomAvailabilityPage />} />
+
+                <Route path="/faculty-assignments" element={<FacultyAssignmentPage />} />
+                <Route path="/faculty-workload" element={<FacultyWorkloadPage />} />
+                <Route path="/feasibility" element={<FeasibilityPage />} />
               </Routes>
             </main>
           </div>

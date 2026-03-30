@@ -1,31 +1,37 @@
 /**
  * Structured Composite Baskets Management Page
  * Handles multi-department, mixed lab/theory blocks.
+ * Supports class-level (semester) targeting within selected departments.
  */
-import { useEffect, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Layers, AlertCircle } from 'lucide-react';
-import { structuredCompositeBasketsApi, subjectsApi, departmentsApi } from '../services/api';
+import { useEffect, useState, useCallback } from 'react';
+import { Plus, Edit2, Trash2, X, Layers, AlertCircle, Loader2 } from 'lucide-react';
+import { structuredCompositeBasketsApi, subjectsApi, departmentsApi, semestersApi } from '../services/api';
 import './CrudPage.css';
+
+const INITIAL_FORM = {
+    name: '',
+    semester: 1,
+    theory_hours: 3,
+    lab_hours: 2,
+    continuous_lab_periods: 2,
+    same_slot_across_departments: true,
+    allow_lab_parallel: true,
+    department_ids: [],
+    class_ids: [],
+    subject_ids: []
+};
 
 export default function StructuredBasketsPage() {
     const [baskets, setBaskets] = useState([]);
     const [subjects, setSubjects] = useState([]);
     const [departments, setDepartments] = useState([]);
+    const [deptClasses, setDeptClasses] = useState([]); // classes for selected departments
+    const [classesLoading, setClassesLoading] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [editingBasket, setEditingBasket] = useState(null);
-    const [formData, setFormData] = useState({
-        name: '',
-        semester: 1,
-        theory_hours: 3,
-        lab_hours: 2,
-        continuous_lab_periods: 2,
-        same_slot_across_departments: true,
-        allow_lab_parallel: true,
-        department_ids: [],
-        subject_ids: []
-    });
+    const [formData, setFormData] = useState({ ...INITIAL_FORM });
 
     useEffect(() => {
         fetchData();
@@ -50,9 +56,42 @@ export default function StructuredBasketsPage() {
         }
     };
 
-    const openModal = (basket = null) => {
+    // Fetch classes whenever department selection changes
+    const fetchClassesForDepartments = useCallback(async (deptIds) => {
+        if (!deptIds || deptIds.length === 0) {
+            setDeptClasses([]);
+            return;
+        }
+        setClassesLoading(true);
+        try {
+            const allClasses = [];
+            for (const deptId of deptIds) {
+                const res = await semestersApi.getAll({ deptId });
+                if (res.data) {
+                    allClasses.push(...res.data);
+                }
+            }
+            // Deduplicate by id
+            const seen = new Set();
+            const unique = allClasses.filter(c => {
+                if (seen.has(c.id)) return false;
+                seen.add(c.id);
+                return true;
+            });
+            setDeptClasses(unique);
+        } catch (err) {
+            console.error('Failed to fetch classes:', err);
+            setDeptClasses([]);
+        } finally {
+            setClassesLoading(false);
+        }
+    }, []);
+
+    const openModal = async (basket = null) => {
         if (basket) {
             setEditingBasket(basket);
+            const deptIds = basket.departments_involved ? basket.departments_involved.map(d => d.id) : [];
+            const classIds = basket.selected_classes ? basket.selected_classes.map(c => c.id) : [];
             setFormData({
                 name: basket.name || '',
                 semester: basket.semester,
@@ -61,22 +100,16 @@ export default function StructuredBasketsPage() {
                 continuous_lab_periods: basket.continuous_lab_periods ?? 2,
                 same_slot_across_departments: basket.same_slot_across_departments,
                 allow_lab_parallel: basket.allow_lab_parallel,
-                department_ids: basket.departments_involved ? basket.departments_involved.map(d => d.id) : [],
+                department_ids: deptIds,
+                class_ids: classIds,
                 subject_ids: basket.linked_subjects ? basket.linked_subjects.map(s => s.id) : []
             });
+            // Load classes for the selected departments
+            await fetchClassesForDepartments(deptIds);
         } else {
             setEditingBasket(null);
-            setFormData({
-                name: '',
-                semester: 1,
-                theory_hours: 3,
-                lab_hours: 2,
-                continuous_lab_periods: 2,
-                same_slot_across_departments: true,
-                allow_lab_parallel: true,
-                department_ids: [],
-                subject_ids: []
-            });
+            setFormData({ ...INITIAL_FORM });
+            setDeptClasses([]);
         }
         setShowModal(true);
     };
@@ -84,10 +117,50 @@ export default function StructuredBasketsPage() {
     const closeModal = () => {
         setShowModal(false);
         setEditingBasket(null);
+        setDeptClasses([]);
+    };
+
+    const handleDepartmentChange = async (deptId, checked) => {
+        const ids = new Set(formData.department_ids);
+        if (checked) ids.add(deptId); else ids.delete(deptId);
+        const newDeptIds = Array.from(ids);
+
+        // Remove class_ids that no longer belong to selected departments
+        const removedDeptIds = formData.department_ids.filter(id => !newDeptIds.includes(id));
+        let newClassIds = formData.class_ids;
+        if (removedDeptIds.length > 0) {
+            // We need to check which classes belonged to removed departments
+            const removedClassIds = deptClasses
+                .filter(c => removedDeptIds.includes(c.dept_id))
+                .map(c => c.id);
+            newClassIds = newClassIds.filter(id => !removedClassIds.includes(id));
+        }
+
+        setFormData(prev => ({
+            ...prev,
+            department_ids: newDeptIds,
+            class_ids: newClassIds
+        }));
+
+        // Fetch classes for new department selection
+        await fetchClassesForDepartments(newDeptIds);
+    };
+
+    const handleClassChange = (classId, checked) => {
+        const ids = new Set(formData.class_ids);
+        if (checked) ids.add(classId); else ids.delete(classId);
+        setFormData(prev => ({ ...prev, class_ids: Array.from(ids) }));
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // Validate: at least one class must be selected if departments are selected
+        if (formData.department_ids.length > 0 && formData.class_ids.length === 0) {
+            setError('Please select at least one class from the departments.');
+            return;
+        }
+
         try {
             if (editingBasket) {
                 await structuredCompositeBasketsApi.update(editingBasket.id, formData);
@@ -112,6 +185,14 @@ export default function StructuredBasketsPage() {
             setError('Failed to delete basket');
         }
     };
+
+    // Group classes by department for display
+    const classesByDept = {};
+    for (const cls of deptClasses) {
+        const deptId = cls.dept_id || 0;
+        if (!classesByDept[deptId]) classesByDept[deptId] = [];
+        classesByDept[deptId].push(cls);
+    }
 
     if (loading) return <div className="loading"><div className="spinner"></div></div>;
 
@@ -168,6 +249,12 @@ export default function StructuredBasketsPage() {
                                 <strong>Departments:</strong> {basket.departments_involved && basket.departments_involved.map(d => d.code).join(', ') || 'None'}
                             </div>
 
+                            {basket.selected_classes && basket.selected_classes.length > 0 && (
+                                <div className="text-muted mb-2">
+                                    <strong>Classes:</strong> {basket.selected_classes.map(c => c.name || c.code).join(', ')}
+                                </div>
+                            )}
+
                             <div className="text-muted mb-2">
                                 <strong>Hours:</strong> {basket.theory_hours}h Theory, {basket.lab_hours}h Lab ({basket.continuous_lab_periods}h continuous block requested)
                             </div>
@@ -187,7 +274,7 @@ export default function StructuredBasketsPage() {
             {/* Modal */}
             {showModal && (
                 <div className="modal-overlay" onClick={closeModal}>
-                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '750px' }}>
                         <div className="modal-header">
                             <h2>{editingBasket ? 'Edit SCB' : 'New Structured Composite Basket'}</h2>
                             <button className="modal-close" onClick={closeModal}><X size={20} /></button>
@@ -240,20 +327,17 @@ export default function StructuredBasketsPage() {
                                 </label>
                             </div>
 
+                            {/* Departments */}
                             <div className="form-row">
-                                <div className="form-group">
+                                <div className="form-group" style={{ flex: 1 }}>
                                     <label className="form-label">Departments Involved</label>
-                                    <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #eee', padding: '8px', borderRadius: '6px' }}>
+                                    <div style={{ maxHeight: '130px', overflowY: 'auto', border: '1px solid #eee', padding: '8px', borderRadius: '6px' }}>
                                         {departments.map(d => (
                                             <label key={d.id} style={{ display: 'block', marginBottom: '4px', fontSize: '13px', cursor: 'pointer' }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={formData.department_ids.includes(d.id)}
-                                                    onChange={e => {
-                                                        const ids = new Set(formData.department_ids);
-                                                        if (e.target.checked) ids.add(d.id); else ids.delete(d.id);
-                                                        setFormData({ ...formData, department_ids: Array.from(ids) });
-                                                    }}
+                                                    onChange={e => handleDepartmentChange(d.id, e.target.checked)}
                                                     style={{ marginRight: '8px' }}
                                                 />
                                                 {d.name} ({d.code})
@@ -261,8 +345,77 @@ export default function StructuredBasketsPage() {
                                         ))}
                                     </div>
                                 </div>
-                                <div className="form-group">
-                                    <label className="form-label">Subjects LinkedIn (from Depts)</label>
+                            </div>
+
+                            {/* Classes (dependent on department selection) */}
+                            {formData.department_ids.length > 0 && (
+                                <div className="form-row">
+                                    <div className="form-group" style={{ flex: 1 }}>
+                                        <label className="form-label">
+                                            Classes (Semesters) *
+                                            <span style={{ fontSize: '11px', color: '#888', marginLeft: '8px' }}>
+                                                Select specific classes from above departments
+                                            </span>
+                                        </label>
+                                        {classesLoading ? (
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                padding: '16px', border: '1px solid #eee', borderRadius: '6px',
+                                                color: '#888', fontSize: '13px'
+                                            }}>
+                                                <Loader2 size={16} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
+                                                Loading classes...
+                                            </div>
+                                        ) : deptClasses.length === 0 ? (
+                                            <div style={{
+                                                padding: '16px', border: '1px dashed #ddd', borderRadius: '6px',
+                                                color: '#999', fontSize: '13px', textAlign: 'center'
+                                            }}>
+                                                No classes found for selected departments
+                                            </div>
+                                        ) : (
+                                            <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid #eee', padding: '8px', borderRadius: '6px' }}>
+                                                {Object.entries(classesByDept).map(([dId, classes]) => {
+                                                    const dept = departments.find(d => d.id === parseInt(dId));
+                                                    return (
+                                                        <div key={dId} style={{ marginBottom: '8px' }}>
+                                                            <div style={{
+                                                                fontSize: '11px', fontWeight: 600, color: '#666',
+                                                                textTransform: 'uppercase', letterSpacing: '0.5px',
+                                                                marginBottom: '4px', paddingBottom: '2px',
+                                                                borderBottom: '1px solid #f0f0f0'
+                                                            }}>
+                                                                {dept ? `${dept.name} (${dept.code})` : `Dept ${dId}`}
+                                                            </div>
+                                                            {classes.map(c => (
+                                                                <label key={c.id} style={{ display: 'block', marginBottom: '3px', fontSize: '13px', cursor: 'pointer', paddingLeft: '8px' }}>
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={formData.class_ids.includes(c.id)}
+                                                                        onChange={e => handleClassChange(c.id, e.target.checked)}
+                                                                        style={{ marginRight: '8px' }}
+                                                                    />
+                                                                    {c.name} ({c.code}) — Year {c.year}, Sec {c.section}
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {formData.department_ids.length > 0 && formData.class_ids.length === 0 && !classesLoading && deptClasses.length > 0 && (
+                                            <div style={{ color: '#dc2626', fontSize: '12px', marginTop: '4px' }}>
+                                                ⚠ Please select at least one class
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Subjects */}
+                            <div className="form-row">
+                                <div className="form-group" style={{ flex: 1 }}>
+                                    <label className="form-label">Subjects Linked (from Depts)</label>
                                     <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #eee', padding: '8px', borderRadius: '6px' }}>
                                         {subjects.filter(s => formData.department_ids.includes(s.dept_id) || !s.dept_id).map(s => (
                                             <label key={s.id} style={{ display: 'block', marginBottom: '4px', fontSize: '13px', cursor: 'pointer' }}>
@@ -291,6 +444,13 @@ export default function StructuredBasketsPage() {
                     </div>
                 </div>
             )}
+
+            <style>{`
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+            `}</style>
         </div>
     );
 }

@@ -835,6 +835,7 @@ class StructuredCompositeBasketBase(BaseModel):
 
 class StructuredCompositeBasketCreate(StructuredCompositeBasketBase):
     department_ids: List[int] = []
+    class_ids: List[int] = []  # Specific semester/class IDs within selected departments
     subject_ids: List[int] = []
 
 
@@ -846,6 +847,7 @@ class StructuredCompositeBasketUpdate(BaseModel):
     same_slot_across_departments: Optional[bool] = None
     allow_lab_parallel: Optional[bool] = None
     department_ids: Optional[List[int]] = None
+    class_ids: Optional[List[int]] = None  # Specific semester/class IDs
     subject_ids: Optional[List[int]] = None
 
 
@@ -854,6 +856,7 @@ class StructuredCompositeBasketResponse(StructuredCompositeBasketBase):
     is_scheduled: bool = False
     scheduled_slots: Optional[str] = None
     departments_involved: List[DepartmentSummary] = []
+    selected_classes: List[SemesterResponse] = []
     linked_subjects: List[SubjectSummary] = []
     
     class Config:

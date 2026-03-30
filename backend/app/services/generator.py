@@ -1110,11 +1110,21 @@ class TimetableGenerator:
             if not scb.departments_involved:
                 continue
                 
+            # Use selected_classes if available, otherwise fall back to department-wide
+            selected_class_ids = {c.id for c in scb.selected_classes} if scb.selected_classes else set()
             scb_dept_ids = {d.id for d in scb.departments_involved}
-            participating_sems = [
-                s for s in target_semesters
-                if s.dept_id in scb_dept_ids and s.semester_number == scb.semester
-            ]
+            if selected_class_ids:
+                # Class-level targeting: only use explicitly selected classes
+                participating_sems = [
+                    s for s in target_semesters
+                    if s.id in selected_class_ids
+                ]
+            else:
+                # Legacy fallback: all classes in departments matching semester number
+                participating_sems = [
+                    s for s in target_semesters
+                    if s.dept_id in scb_dept_ids and s.semester_number == scb.semester
+                ]
             
             if not participating_sems:
                 continue

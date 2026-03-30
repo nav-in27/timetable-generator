@@ -1,0 +1,28 @@
+.feasibility-page { padding: 20px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+.page-header h1 { margin: 0; font-size: 1.5rem; color: #1e293b; }
+.description { color: #64748b; font-size: 0.875rem; margin-bottom: 20px; }
+.btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; }
+.btn-primary { background: #3b82f6; color: white; }
+.btn-primary:hover { background: #2563eb; }
+.report { margin-top: 16px; }
+.report-banner { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-radius: 10px; margin-bottom: 16px; }
+.report-banner.feasible { background: #dcfce7; border: 1px solid #86efac; }
+.report-banner.infeasible { background: #fee2e2; border: 1px solid #fca5a5; }
+.banner-icon { font-size: 1.5rem; }
+.report-banner strong { font-size: 1rem; }
+.report-banner p { margin: 4px 0 0; font-size: 0.85rem; color: #475569; }
+.report-stats { display: flex; gap: 12px; margin-bottom: 16px; }
+.stat { padding: 4px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; }
+.error-stat { background: #fee2e2; color: #991b1b; }
+.warning-stat { background: #fef3c7; color: #92400e; }
+.warnings-list { display: flex; flex-direction: column; gap: 8px; }
+.warning-item { display: flex; gap: 10px; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; }
+.warning-item.error { background: #fff1f2; border-color: #fca5a5; }
+.warning-item.warning { background: #fffbeb; border-color: #fde68a; }
+.warning-item.info { background: #f0f9ff; border-color: #bae6fd; }
+.warning-icon { font-size: 1.1rem; flex-shrink: 0; }
+.warning-body { flex: 1; }
+.warning-category { font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+.warning-message { margin: 2px 0 0; font-size: 0.85rem; color: #1e293b; }
+.all-clear { text-align: center; color: #16a34a; font-weight: 600; font-size: 1rem; margin-top: 20px; }

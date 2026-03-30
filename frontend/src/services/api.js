@@ -433,4 +433,31 @@ export const structuredCompositeBasketsApi = {
   delete: (id) => api.delete(`/structured-composite-baskets/${id}`),
 };
 
+
+
+// ============================================================================
+// Allocation Engine (Module 3-6)
+// ============================================================================
+export const allocationApi = {
+  runAllocation: (data) => api.post('/allocation/run', data),
+  getMode: () => api.get('/allocation/mode'),
+  setMode: (mode) => api.put('/allocation/mode', { mode }),
+  getAssignments: (params = {}) => api.get('/allocation/assignments', { params }),
+  updateAssignment: (id, data) => api.put(`/allocation/assignments/${id}`, data),
+  swapAssignments: (idA, idB) => api.post('/allocation/assignments/swap', {
+    assignment_id_a: idA, assignment_id_b: idB,
+  }),
+  deleteAssignment: (id) => api.delete(`/allocation/assignments/${id}`),
+  lockAssignment: (id) => api.put(`/allocation/assignments/${id}/lock`),
+  unlockAssignment: (id) => api.put(`/allocation/assignments/${id}/unlock`),
+  getWorkload: (params = {}) => api.get('/allocation/workload', { params }),
+};
+
+// ============================================================================
+// Feasibility Analyzer (Module 9)
+// ============================================================================
+export const feasibilityApi = {
+  analyze: (params = {}) => api.get('/feasibility/analyze', { params }),
+};
+
 export default api;

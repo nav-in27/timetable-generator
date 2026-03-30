@@ -19,29 +19,30 @@ from app.schemas.schemas import (
 router = APIRouter(prefix="/structured-composite-baskets", tags=["Structured Composite Baskets"])
 
 
+def _basket_to_dict(b):
+    """Convert a StructuredCompositeBasket ORM object to a response dict."""
+    return {
+        "id": b.id,
+        "name": b.name,
+        "semester": b.semester,
+        "theory_hours": b.theory_hours,
+        "lab_hours": b.lab_hours,
+        "continuous_lab_periods": b.continuous_lab_periods,
+        "same_slot_across_departments": b.same_slot_across_departments,
+        "allow_lab_parallel": b.allow_lab_parallel,
+        "is_scheduled": b.is_scheduled,
+        "scheduled_slots": b.scheduled_slots,
+        "departments_involved": b.departments_involved,
+        "selected_classes": b.selected_classes,
+        "linked_subjects": [link.subject for link in b.linked_subjects]
+    }
+
+
 @router.get("/", response_model=List[StructuredCompositeBasketResponse])
 def list_scb(db: Session = Depends(get_db)):
     """Get all structured composite baskets."""
     baskets = db.query(StructuredCompositeBasket).all()
-    # Ensure manual mapping if needed
-    result = []
-    for b in baskets:
-        basket_dict = {
-            "id": b.id,
-            "name": b.name,
-            "semester": b.semester,
-            "theory_hours": b.theory_hours,
-            "lab_hours": b.lab_hours,
-            "continuous_lab_periods": b.continuous_lab_periods,
-            "same_slot_across_departments": b.same_slot_across_departments,
-            "allow_lab_parallel": b.allow_lab_parallel,
-            "is_scheduled": b.is_scheduled,
-            "scheduled_slots": b.scheduled_slots,
-            "departments_involved": b.departments_involved,
-            "linked_subjects": [link.subject for link in b.linked_subjects]
-        }
-        result.append(basket_dict)
-    return result
+    return [_basket_to_dict(b) for b in baskets]
 
 
 @router.get("/{basket_id}", response_model=StructuredCompositeBasketResponse)
@@ -50,22 +51,7 @@ def get_scb(basket_id: int, db: Session = Depends(get_db)):
     basket = db.query(StructuredCompositeBasket).filter(StructuredCompositeBasket.id == basket_id).first()
     if not basket:
         raise HTTPException(status_code=404, detail="Structured Composite Basket not found")
-    
-    basket_dict = {
-        "id": basket.id,
-        "name": basket.name,
-        "semester": basket.semester,
-        "theory_hours": basket.theory_hours,
-        "lab_hours": basket.lab_hours,
-        "continuous_lab_periods": basket.continuous_lab_periods,
-        "same_slot_across_departments": basket.same_slot_across_departments,
-        "allow_lab_parallel": basket.allow_lab_parallel,
-        "is_scheduled": basket.is_scheduled,
-        "scheduled_slots": basket.scheduled_slots,
-        "departments_involved": basket.departments_involved,
-        "linked_subjects": [link.subject for link in basket.linked_subjects]
-    }
-    return basket_dict
+    return _basket_to_dict(basket)
 
 
 @router.post("/", response_model=StructuredCompositeBasketResponse, status_code=status.HTTP_201_CREATED)
@@ -85,6 +71,14 @@ def create_scb(basket_data: StructuredCompositeBasketCreate, db: Session = Depen
     if basket_data.department_ids:
         depts = db.query(Department).filter(Department.id.in_(basket_data.department_ids)).all()
         basket.departments_involved = depts
+
+    # Assign selected classes (validate they belong to selected departments)
+    if basket_data.class_ids:
+        classes = db.query(Semester).filter(Semester.id.in_(basket_data.class_ids)).all()
+        if basket_data.department_ids:
+            dept_set = set(basket_data.department_ids)
+            classes = [c for c in classes if c.dept_id in dept_set]
+        basket.selected_classes = classes
         
     db.add(basket)
     db.commit()
@@ -100,20 +94,7 @@ def create_scb(basket_data: StructuredCompositeBasketCreate, db: Session = Depen
         db.commit()
         db.refresh(basket)
 
-    return {
-        "id": basket.id,
-        "name": basket.name,
-        "semester": basket.semester,
-        "theory_hours": basket.theory_hours,
-        "lab_hours": basket.lab_hours,
-        "continuous_lab_periods": basket.continuous_lab_periods,
-        "same_slot_across_departments": basket.same_slot_across_departments,
-        "allow_lab_parallel": basket.allow_lab_parallel,
-        "is_scheduled": basket.is_scheduled,
-        "scheduled_slots": basket.scheduled_slots,
-        "departments_involved": basket.departments_involved,
-        "linked_subjects": [link.subject for link in basket.linked_subjects]
-    }
+    return _basket_to_dict(basket)
 
 
 @router.put("/{basket_id}", response_model=StructuredCompositeBasketResponse)
@@ -130,6 +111,15 @@ def update_scb(basket_id: int, basket_data: StructuredCompositeBasketUpdate, db:
         if dept_ids is not None:
             depts = db.query(Department).filter(Department.id.in_(dept_ids)).all()
             basket.departments_involved = depts
+
+    if 'class_ids' in update_data:
+        class_ids = update_data.pop('class_ids')
+        if class_ids is not None:
+            classes = db.query(Semester).filter(Semester.id.in_(class_ids)).all()
+            # Validate against current departments
+            current_dept_ids = {d.id for d in basket.departments_involved}
+            classes = [c for c in classes if c.dept_id in current_dept_ids]
+            basket.selected_classes = classes
             
     if 'subject_ids' in update_data:
         subj_ids = update_data.pop('subject_ids')
@@ -151,20 +141,7 @@ def update_scb(basket_id: int, basket_data: StructuredCompositeBasketUpdate, db:
     db.commit()
     db.refresh(basket)
     
-    return {
-        "id": basket.id,
-        "name": basket.name,
-        "semester": basket.semester,
-        "theory_hours": basket.theory_hours,
-        "lab_hours": basket.lab_hours,
-        "continuous_lab_periods": basket.continuous_lab_periods,
-        "same_slot_across_departments": basket.same_slot_across_departments,
-        "allow_lab_parallel": basket.allow_lab_parallel,
-        "is_scheduled": basket.is_scheduled,
-        "scheduled_slots": basket.scheduled_slots,
-        "departments_involved": basket.departments_involved,
-        "linked_subjects": [link.subject for link in basket.linked_subjects]
-    }
+    return _basket_to_dict(basket)
 
 
 @router.delete("/{basket_id}", status_code=status.HTTP_204_NO_CONTENT)

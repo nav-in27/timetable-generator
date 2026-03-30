@@ -52,6 +52,8 @@ from app.api import (
     parallel_lab_baskets,
     room_availability,
     structured_composite_baskets,
+    allocation,
+    feasibility,
 )
 
 settings = get_settings()
@@ -154,6 +156,8 @@ app.include_router(rule_toggles.router, prefix="/api")
 app.include_router(parallel_lab_baskets.router, prefix="/api")
 app.include_router(room_availability.router, prefix="/api")
 app.include_router(structured_composite_baskets.router, prefix="/api")
+app.include_router(allocation.router, prefix="/api")
+app.include_router(feasibility.router, prefix="/api")
 
 
 @app.get("/")

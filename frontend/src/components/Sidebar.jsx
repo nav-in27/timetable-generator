@@ -20,6 +20,11 @@ import {
     FileText,
     Gauge,
     DoorOpen,
+    Settings,
+    Heart,
+    ClipboardList,
+    BarChart3,
+    ShieldCheck,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useDepartmentContext } from '../context/DepartmentContext';
@@ -43,6 +48,10 @@ const navItems = [
     { path: '/timetable', label: 'View Timetable', icon: Calendar },
     { path: '/manage-timetable', label: 'Manage Slots', icon: Lock },
     { path: '/substitution', label: 'Substitution', icon: UserCheck },
+
+    { path: '/faculty-assignments', label: 'Assignments', icon: ClipboardList },
+    { path: '/faculty-workload', label: 'Faculty Workload', icon: BarChart3 },
+    { path: '/feasibility', label: 'Feasibility', icon: ShieldCheck },
     { path: '/generate', label: 'Generate', icon: RefreshCw },
 ];
 

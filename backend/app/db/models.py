@@ -902,6 +902,13 @@ scb_departments = Table(
     Column("dept_id", Integer, ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
 )
 
+scb_classes = Table(
+    "scb_classes",
+    Base.metadata,
+    Column("scb_id", Integer, ForeignKey("structured_composite_baskets.id", ondelete="CASCADE"), primary_key=True),
+    Column("semester_id", Integer, ForeignKey("semesters.id", ondelete="CASCADE"), primary_key=True),
+)
+
 class StructuredCompositeBasket(Base):
     """
     Structured Composite Basket (SCB) for mixed Theory + Lab multi-day handling.
@@ -926,6 +933,7 @@ class StructuredCompositeBasket(Base):
 
     # Relationships
     departments_involved: Mapped[List["Department"]] = relationship(secondary=scb_departments)
+    selected_classes: Mapped[List["Semester"]] = relationship(secondary=scb_classes)
     linked_subjects: Mapped[List["StructuredCompositeBasketSubject"]] = relationship(
         back_populates="basket", cascade="all, delete-orphan"
     )
@@ -949,4 +957,22 @@ class StructuredCompositeBasketSubject(Base):
     subject: Mapped["Subject"] = relationship()
 
 
+
+# ============================================================================
+# MODULE: ALLOCATION MODE SETTING
+# ============================================================================
+
+class SystemSetting(Base):
+    """
+    System-wide key-value settings.
+    Used to store allocation_mode (manual / preference) and other config.
+    """
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    key: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    value: Mapped[str] = mapped_column(String(500), default="")
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
