@@ -4109,8 +4109,29 @@ class TimetableGenerator:
             if key not in seen:
                 seen.add(key)
                 unique.append(entry)
+
+        # Resolve subject metadata once so persisted rows remain consistent
+        # even if an incoming entry has incomplete elective flags.
+        subject_ids = {e.subject_id for e in unique if e.subject_id is not None}
+        subject_meta = {}
+        if subject_ids:
+            subject_rows = self.db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
+            subject_meta = {s.id: s for s in subject_rows}
         
         for entry in unique:
+            subj = subject_meta.get(entry.subject_id)
+            subject_type = str(getattr(subj, "subject_type", "")).lower() if subj else ""
+            inferred_is_elective = bool(
+                entry.is_elective
+                or entry.elective_basket_id is not None
+                or (subj is not None and getattr(subj, "is_elective", False))
+                or (subj is not None and getattr(subj, "elective_basket_id", None) is not None)
+                or subject_type.endswith("elective")
+            )
+            inferred_basket_id = entry.elective_basket_id
+            if inferred_basket_id is None and subj is not None:
+                inferred_basket_id = getattr(subj, "elective_basket_id", None)
+
             db_alloc = Allocation(
                 teacher_id=entry.teacher_id,
                 subject_id=entry.subject_id,
@@ -4121,8 +4142,8 @@ class TimetableGenerator:
                 component_type=entry.component_type,
                 academic_component=entry.academic_component,
                 is_lab_continuation=entry.is_lab_continuation,
-                is_elective=entry.is_elective,
-                elective_basket_id=entry.elective_basket_id,
+                is_elective=inferred_is_elective,
+                elective_basket_id=inferred_basket_id,
                 batch_id=entry.batch_id # NEW: Persist batch assignment
             )
             self.db.add(db_alloc)

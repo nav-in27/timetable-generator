@@ -27,6 +27,21 @@ settings = get_settings()
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
+
+def _is_effective_elective(allocation: Allocation) -> bool:
+    """
+    Determine elective status robustly even when legacy rows missed is_elective.
+    """
+    subject = getattr(allocation, "subject", None)
+    subject_type = str(getattr(subject, "subject_type", "")).lower() if subject else ""
+    return bool(
+        getattr(allocation, "is_elective", False)
+        or getattr(allocation, "elective_basket_id", None) is not None
+        or (subject is not None and getattr(subject, "is_elective", False))
+        or (subject is not None and getattr(subject, "elective_basket_id", None) is not None)
+        or subject_type.endswith("elective")
+    )
+
 # In-memory generation task store (for async generation)
 _generation_tasks: Dict[str, Dict[str, Any]] = {}
 
@@ -161,7 +176,7 @@ def get_semester_timetable(
             if slot_allocs:
                 # Use the first allocation as the "primary" one for general slot info
                 primary_alloc = slot_allocs[0]
-                is_pure_elective_slot = all(getattr(a, 'is_elective', False) for a in slot_allocs)
+                is_pure_elective_slot = all(_is_effective_elective(a) for a in slot_allocs)
 
                 is_substituted = primary_alloc.id in substitutions_map
                 sub_teacher_name = None
@@ -241,7 +256,7 @@ def get_semester_timetable(
                     if scb_name:
                         combined_name = scb_name
                         combined_code = scb_name
-                    elif not any(getattr(a, 'is_elective', False) for a in slot_allocs):
+                    elif not any(_is_effective_elective(a) for a in slot_allocs):
                         # Parallel Lab format
                         combined_name = " / ".join(f"{a.subject.code}:{a.batch.name if a.batch else 'B'} (PL)" for a in unique_subjects)
                         combined_code = " / ".join(f"{a.subject.code} (PL)" for a in unique_subjects)
@@ -264,7 +279,7 @@ def get_semester_timetable(
                     component_type=getattr(primary_alloc, 'component_type', None).value if hasattr(primary_alloc, 'component_type') and primary_alloc.component_type else "theory",
                     academic_component=getattr(primary_alloc, 'academic_component', None) or (primary_alloc.component_type.value if primary_alloc.component_type else None),
                     is_lab=(getattr(primary_alloc, 'academic_component', None) or (primary_alloc.component_type.value if primary_alloc.component_type else "")) == "lab",
-                    is_elective=getattr(primary_alloc, 'is_elective', False),
+                    is_elective=_is_effective_elective(primary_alloc),
                     is_substituted=is_substituted,
                     substitute_teacher_name=sub_teacher_name
                 )
@@ -356,6 +371,7 @@ def get_teacher_timetable(
             )
 
             if alloc:
+                effective_is_elective = _is_effective_elective(alloc)
                 slot_data = TimetableSlot(
                     allocation_id=alloc.id,
                     teacher_name=teacher.name,
@@ -366,7 +382,7 @@ def get_teacher_timetable(
                     component_type=getattr(alloc, 'component_type', None).value if hasattr(alloc, 'component_type') and alloc.component_type else "theory",
                     academic_component=getattr(alloc, 'academic_component', None) or (alloc.component_type.value if alloc.component_type else None),
                     is_lab=(getattr(alloc, 'academic_component', None) or (alloc.component_type.value if alloc.component_type else "")) == "lab",
-                    is_elective=getattr(alloc, 'is_elective', False),
+                    is_elective=effective_is_elective,
                     is_substituted=False,
                     substitute_teacher_name=None
                 )
