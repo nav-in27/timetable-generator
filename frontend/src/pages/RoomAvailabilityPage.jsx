@@ -39,9 +39,6 @@ export default function RoomAvailabilityPage() {
     const [finderSlot, setFinderSlot] = useState(0);
     const [finderType, setFinderType] = useState('');
 
-    // Expanded day in compact mode
-    const [expandedDay, setExpandedDay] = useState(null);
-
     // Conflict detail panel
     const [showConflicts, setShowConflicts] = useState(false);
 

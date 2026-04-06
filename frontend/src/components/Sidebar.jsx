@@ -2,7 +2,7 @@
  * Sidebar Navigation Component
  * Modern sidebar with navigation links and branding
  */
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
     LayoutDashboard,
     Users,
@@ -58,7 +58,6 @@ const navItems = [
 export default function Sidebar() {
     const [mobileOpen, setMobileOpen] = useState(false);
     const { departments, selectedDeptId, setSelectedDeptId } = useDepartmentContext();
-    const location = useLocation();
 
     return (
         <>

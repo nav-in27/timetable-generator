@@ -14,6 +14,8 @@ import threading
 import webbrowser
 import platform
 import socket
+import urllib.request
+import urllib.error
 
 # Project directories
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +29,9 @@ FRONTEND_PORT = 5173
 # Global process references
 backend_process = None
 frontend_process = None
+backend_owned = False
+frontend_owned = False
+reused_backend = False
 
 # Detect Windows
 IS_WINDOWS = platform.system() == "Windows"
@@ -126,6 +131,7 @@ def find_available_port(start_port: int, max_tries: int = 50) -> int:
 def start_backend(port: int):
     """Start the FastAPI backend server on the given port."""
     global backend_process
+    global backend_owned
     print(f"[START] Starting Backend Server on http://localhost:{port}")
     print(f"   API Docs: http://localhost:{port}/docs")
     
@@ -139,6 +145,7 @@ def start_backend(port: int):
         cwd=BACKEND_DIR,
         creationflags=creation_flags
     )
+    backend_owned = True
     
     return backend_process
 
@@ -146,6 +153,7 @@ def start_backend(port: int):
 def start_frontend(port: int, api_base_url: str):
     """Start the Vite React frontend server, pointing it at the given API base URL."""
     global frontend_process
+    global frontend_owned
     print(f"[START] Starting Frontend Server on http://localhost:{port}")
     print(f"   Using API base URL: {api_base_url}")
     
@@ -166,12 +174,15 @@ def start_frontend(port: int, api_base_url: str):
         creationflags=creation_flags,
         env=env
     )
+    frontend_owned = True
     
     return frontend_process
 
 
 def cleanup(signum=None, frame=None):
     """Clean up processes on exit."""
+    global backend_owned
+    global frontend_owned
     print("\n\n[STOP] Shutting down servers...")
     
     def kill_process_tree(proc):
@@ -192,11 +203,13 @@ def cleanup(signum=None, frame=None):
         except Exception as e:
             print(f"   [WARN] Error killing process {proc.pid}: {e}")
 
-    if backend_process:
+    if backend_process and backend_owned:
         kill_process_tree(backend_process)
         print("   [OK] Backend server stopped")
+    elif backend_process and not backend_owned:
+        print("   [INFO] Reused backend was not started by this runner; leaving it running")
     
-    if frontend_process:
+    if frontend_process and frontend_owned:
         kill_process_tree(frontend_process)
         print("   [OK] Frontend server stopped")
     
@@ -206,8 +219,21 @@ def cleanup(signum=None, frame=None):
     sys.exit(0)
 
 
+def is_backend_healthy(port: int, timeout: float = 1.5) -> bool:
+    """Check whether a backend instance is reachable and healthy on the given port."""
+    health_url = f"http://127.0.0.1:{port}/health"
+    try:
+        with urllib.request.urlopen(health_url, timeout=timeout) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+        return False
+
+
 def main():
     """Main entry point."""
+    global backend_process
+    global backend_owned
+    global reused_backend
     print_banner()
     
     # Register signal handlers for graceful shutdown
@@ -223,10 +249,18 @@ def main():
         check_requirements()
         
         # Start servers
-        # Find a free backend port
-        backend_port = find_available_port(BACKEND_PORT)
-        if backend_port != BACKEND_PORT:
-            print(f"[WARN] Default backend port {BACKEND_PORT} is in use or forbidden.")
+        # Prefer default backend port; if already used by a healthy backend, reuse it.
+        backend_port = BACKEND_PORT
+        if is_port_available(BACKEND_PORT):
+            backend_port = BACKEND_PORT
+        elif is_backend_healthy(BACKEND_PORT):
+            print(f"[INFO] Backend already running on http://localhost:{BACKEND_PORT}; reusing it.")
+            backend_process = None
+            backend_owned = False
+            reused_backend = True
+        else:
+            backend_port = find_available_port(BACKEND_PORT + 1)
+            print(f"[WARN] Default backend port {BACKEND_PORT} is in use by another process.")
             print(f"       Using alternative port {backend_port} instead.")
         
         # Find a free frontend port
@@ -235,8 +269,9 @@ def main():
             print(f"[WARN] Default frontend port {FRONTEND_PORT} is in use or forbidden.")
             print(f"       Using alternative port {frontend_port} instead.")
 
-        start_backend(backend_port)
-        time.sleep(2)  # Wait for backend to start
+        if not reused_backend:
+            start_backend(backend_port)
+            time.sleep(2)  # Wait for backend to start
         
         api_base_url = f"http://127.0.0.1:{backend_port}/api"
         start_frontend(frontend_port, api_base_url)

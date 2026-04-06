@@ -41,16 +41,6 @@ export default function ManageTimetablePage() {
     const [showLockModal, setShowLockModal] = useState(false);
     const [lockSlotTarget, setLockSlotTarget] = useState({ day: null, slot: null });
 
-    useEffect(() => {
-        fetchSemesters();
-    }, [deptId]);
-
-    useEffect(() => {
-        if (selectedSemesterId) {
-            fetchData();
-        }
-    }, [selectedSemesterId]);
-
     const fetchSemesters = async () => {
         try {
             const params = {};
@@ -96,6 +86,18 @@ export default function ManageTimetablePage() {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        fetchSemesters();
+    }, [deptId]);
+
+    useEffect(() => {
+        if (selectedSemesterId) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            fetchData();
+        }
+    }, [selectedSemesterId]);
 
     const handleSemesterChange = (e) => {
         const id = parseInt(e.target.value);

@@ -29,8 +29,6 @@ export default function LockSlotModal({
     day,
     slot,
     onSlotLocked,
-    existingTeachers = [],  // Teachers already teaching this class
-    classSubjects = [],     // Subjects assigned to this class
 }) {
     const { deptId } = useDepartmentContext();
     const [subjects, setSubjects] = useState([]);

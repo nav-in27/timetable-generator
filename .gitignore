@@ -71,3 +71,6 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Runtime artifacts
+*.pid

@@ -14,7 +14,9 @@ export default function PDFPreviewModal({ isOpen, onClose, previewUrl, downloadU
 
     useEffect(() => {
         if (isOpen) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setLoading(true);
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setError(null);
         }
     }, [isOpen]);
