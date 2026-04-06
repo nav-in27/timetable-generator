@@ -16,12 +16,12 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { dashboardApi, substitutionApi } from '../services/api';
+import { dashboardApi } from '../services/api';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import './Dashboard.css';
 
 export default function Dashboard() {
-    const { deptId, departments, selectedDeptId } = useDepartmentContext();
+    const { deptId, departments } = useDepartmentContext();
     const [stats, setStats] = useState(null);
     const [recentSubs, setRecentSubs] = useState([]);
     const [loading, setLoading] = useState(true);

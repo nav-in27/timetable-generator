@@ -5,9 +5,8 @@
 import axios from 'axios';
 
 // Use environment variable for API URL (set in Vercel/Render dashboard)
-// Falls back to localhost for development or relative path for same-origin production
+// Falls back to /api for both development (via Vite proxy) and same-origin production
 let rawApiUrl = import.meta.env.VITE_API_URL || '';
-const hasExplicitApiUrl = Boolean(rawApiUrl);
 
 // Smart fix for common deployment misconfigurations
 if (rawApiUrl) {
@@ -22,10 +21,11 @@ if (rawApiUrl) {
 }
 
 // Fallback logic:
-// 1. If VITE_API_URL is provided, use it.
-// 2. In development, use localhost:8000.
-// 3. In production, use relative /api (assumes same-origin hosting).
-const DEFAULT_API_BASE_URL = rawApiUrl || (import.meta.env.DEV ? 'http://127.0.0.1:8000/api' : '/api');
+// 1. If VITE_API_URL is provided, use it (cross-origin production deployment).
+// 2. Otherwise, use relative /api:
+//    - In development: the Vite dev server proxies /api to http://localhost:8000
+//    - In production: assumes the backend is served at the same origin (e.g. /api/*)
+const DEFAULT_API_BASE_URL = rawApiUrl || '/api';
 
 const api = axios.create({
   baseURL: DEFAULT_API_BASE_URL,
@@ -33,101 +33,6 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
-
-const isLocalHostname = (hostname) =>
-  hostname === 'localhost' || hostname === '127.0.0.1';
-
-const isLocalBaseUrl = (url) => {
-  try {
-    const parsed = new URL(url);
-    return isLocalHostname(parsed.hostname);
-  } catch {
-    return false;
-  }
-};
-
-const withTimeout = async (promise, ms) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ms);
-  try {
-    const result = await promise(controller.signal);
-    return result;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
-const getPortFromBaseUrl = (url) => {
-  try {
-    const parsed = new URL(url);
-    return parsed.port ? parseInt(parsed.port, 10) : null;
-  } catch {
-    return null;
-  }
-};
-
-const detectLocalApiBaseUrl = async (preferredPort = null) => {
-  const hostname = window.location.hostname || '127.0.0.1';
-  const safeHost = isLocalHostname(hostname) ? hostname : '127.0.0.1';
-  const candidatePorts = [8000, 8001, 8002, 8003, 8004, 8005];
-  const ports = preferredPort && candidatePorts.includes(preferredPort)
-    ? [preferredPort, ...candidatePorts.filter((port) => port !== preferredPort)]
-    : candidatePorts;
-
-  for (const port of ports) {
-    const healthUrl = `http://${safeHost}:${port}/health`;
-    try {
-      const response = await withTimeout(
-        (signal) => fetch(healthUrl, { signal }),
-        600
-      );
-      if (response.ok) {
-        return `http://${safeHost}:${port}/api`;
-      }
-    } catch {
-      // Ignore and try next port
-    }
-  }
-  return null;
-};
-
-let autoDetectInFlight = null;
-let hasAutoDetected = false;
-
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const shouldTryDetect =
-      import.meta.env.DEV &&
-      !hasExplicitApiUrl &&
-      !hasAutoDetected &&
-      !error.response &&
-      isLocalBaseUrl(api.defaults.baseURL);
-
-    if (!shouldTryDetect) {
-      return Promise.reject(error);
-    }
-
-    if (!autoDetectInFlight) {
-      autoDetectInFlight = detectLocalApiBaseUrl(
-        getPortFromBaseUrl(api.defaults.baseURL)
-      ).finally(() => {
-        autoDetectInFlight = null;
-      });
-    }
-
-    const detectedBase = await autoDetectInFlight;
-    hasAutoDetected = true;
-
-    if (!detectedBase || detectedBase === api.defaults.baseURL) {
-      return Promise.reject(error);
-    }
-
-    api.defaults.baseURL = detectedBase;
-    const retryConfig = { ...error.config, baseURL: detectedBase };
-    return api.request(retryConfig);
-  }
-);
 
 // ============================================================================
 // Dashboard

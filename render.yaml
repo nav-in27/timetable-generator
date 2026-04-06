@@ -42,7 +42,7 @@ services:
         fromService:
           type: web
           name: timetable-api
-          property: host
+          property: url
     autoDeploy: true
     routes:
       - type: rewrite
