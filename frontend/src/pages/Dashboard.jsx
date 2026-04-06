@@ -16,12 +16,12 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { dashboardApi, substitutionApi } from '../services/api';
+import { dashboardApi } from '../services/api';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import './Dashboard.css';
 
 export default function Dashboard() {
-    const { deptId, departments, selectedDeptId } = useDepartmentContext();
+    const { deptId, departments } = useDepartmentContext();
     const [stats, setStats] = useState(null);
     const [recentSubs, setRecentSubs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -74,9 +74,20 @@ export default function Dashboard() {
 
     if (error) {
         return (
-            <div className="alert alert-error">
-                <AlertCircle size={20} />
-                <span>{error}</span>
+            <div className="dashboard">
+                <div className="page-header">
+                    <div>
+                        <h1>Dashboard</h1>
+                    </div>
+                    <button className="btn btn-secondary" onClick={fetchData}>
+                        <RefreshCw size={16} />
+                        Retry
+                    </button>
+                </div>
+                <div className="alert alert-error">
+                    <AlertCircle size={20} />
+                    <span>{error}</span>
+                </div>
             </div>
         );
     }

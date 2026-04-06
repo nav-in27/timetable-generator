@@ -118,12 +118,6 @@ export default function MasterLabTimetablePage() {
         return dept ? dept.name : "All Departments";
     };
 
-    const getDeptCode = () => {
-        if (!selectedDeptId) return "";
-        const dept = departments.find(d => String(d.id) === String(selectedDeptId));
-        return dept ? dept.code : "";
-    };
-
     const getVisibleRooms = () => {
         if (viewMode === 'single' && selectedLabId) {
             return data.rooms.filter(r => String(r.id) === String(selectedLabId));

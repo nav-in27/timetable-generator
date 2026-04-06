@@ -25,7 +25,6 @@ export default function TimetablePage() {
     // PDF Export State
     const [exportStatus, setExportStatus] = useState({ has_timetable: false, timetable_count: 0 });
     const [showPreview, setShowPreview] = useState(false);
-    const [pdfLoading, setPdfLoading] = useState(false);
 
     useEffect(() => {
         checkExportStatus();

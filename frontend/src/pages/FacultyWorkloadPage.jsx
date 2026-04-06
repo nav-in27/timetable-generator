@@ -25,7 +25,10 @@ export default function FacultyWorkloadPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchWorkload(); }, [selectedDeptId]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchWorkload();
+  }, [selectedDeptId]);
 
   const summary = {
     total: workload.length,

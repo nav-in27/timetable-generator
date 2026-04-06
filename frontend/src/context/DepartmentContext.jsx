@@ -42,8 +42,9 @@ export function DepartmentProvider({ children }) {
             } catch (err) {
                 console.error('Failed to load departments', err);
             } finally {
-                if (cancelled) return;
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         })();
 
@@ -75,6 +76,7 @@ export function DepartmentProvider({ children }) {
     return <DepartmentContext.Provider value={value}>{children}</DepartmentContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useDepartmentContext() {
     const ctx = useContext(DepartmentContext);
     if (!ctx) {

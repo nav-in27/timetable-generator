@@ -23,15 +23,6 @@ export default function ParallelLabsPage() {
     const [allTeachers, setAllTeachers] = useState([]);
     const [allRooms, setAllRooms] = useState([]);
 
-    useEffect(() => {
-        fetchDepartments();
-        fetchAllFormData();
-    }, []);
-
-    useEffect(() => {
-        fetchBaskets();
-    }, [selectedDeptId]);
-
     const fetchDepartments = async () => {
         try {
             const res = await departmentsApi.getAll();
@@ -69,12 +60,24 @@ export default function ParallelLabsPage() {
         }
     };
 
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        fetchDepartments();
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        fetchAllFormData();
+    }, []);
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        fetchBaskets();
+    }, [selectedDeptId]);
+
     const handleDelete = async (id) => {
         if (!confirm('Are you sure you want to delete this parallel lab basket?')) return;
         try {
             await parallelLabBasketsApi.delete(id);
             fetchBaskets();
-        } catch (err) {
+        } catch (_err) {
             alert('Failed to delete basket.');
         }
     };

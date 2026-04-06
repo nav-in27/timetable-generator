@@ -32,7 +32,20 @@ export default function GeneratePage() {
     const [genStatus, setGenStatus] = useState(null); // 'queued' | 'running' | 'completed' | 'failed'
     const pollRef = useRef(null);
 
+    const fetchSemesters = async () => {
+        try {
+            const params = {};
+            if (deptId) params.deptId = deptId;
+            const res = await semestersApi.getAll(params);
+            setSemesters(res.data);
+            setSelectedSemesters([]);
+        } catch (_err) {
+            setError('Failed to load classes');
+        }
+    };
+
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         fetchSemesters();
     }, [deptId]);
 
@@ -42,18 +55,6 @@ export default function GeneratePage() {
             if (pollRef.current) clearInterval(pollRef.current);
         };
     }, []);
-
-    const fetchSemesters = async () => {
-        try {
-            const params = {};
-            if (deptId) params.deptId = deptId;
-            const res = await semestersApi.getAll(params);
-            setSemesters(res.data);
-            setSelectedSemesters([]);
-        } catch (err) {
-            setError('Failed to load classes');
-        }
-    };
 
     const toggleSemester = (id) => {
         setSelectedSemesters((prev) =>
@@ -81,7 +82,7 @@ export default function GeneratePage() {
                         setError(data.result?.message || 'Generation failed');
                     }
                 }
-            } catch (err) {
+            } catch (_err) {
                 // If poll fails, keep trying
             }
         }, 1500);
@@ -105,7 +106,7 @@ export default function GeneratePage() {
 
             const taskId = res.data.task_id;
             pollForStatus(taskId);
-        } catch (err) {
+        } catch (_err) {
             // Fallback to sync if async endpoint not available
             try {
                 const res = await timetableApi.generate({
@@ -133,7 +134,7 @@ export default function GeneratePage() {
             setResult(null);
             setError(null);
             alert('Allocations cleared successfully');
-        } catch (err) {
+        } catch (_err) {
             setError('Failed to clear allocations');
         }
     };

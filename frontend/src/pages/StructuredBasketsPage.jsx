@@ -181,7 +181,7 @@ export default function StructuredBasketsPage() {
         try {
             await structuredCompositeBasketsApi.delete(id);
             fetchData();
-        } catch (err) {
+        } catch (_err) {
             setError('Failed to delete basket');
         }
     };

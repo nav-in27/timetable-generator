@@ -44,13 +44,16 @@ export default function FacultyAssignmentPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, [selectedDeptId, filterSemester]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchData();
+  }, [selectedDeptId, filterSemester]);
 
   const handleModeChange = async (newMode) => {
     try {
       await allocationApi.setMode(newMode);
       setMode(newMode);
-    } catch (err) {
+    } catch (_err) {
       alert('Failed to change mode');
     }
   };
@@ -112,14 +115,14 @@ export default function FacultyAssignmentPage() {
     try {
       await allocationApi.lockAssignment(id);
       fetchData();
-    } catch (err) { alert('Lock failed'); }
+    } catch (_err) { alert('Lock failed'); }
   };
 
   const handleUnlock = async (id) => {
     try {
       await allocationApi.unlockAssignment(id);
       fetchData();
-    } catch (err) { alert('Unlock failed'); }
+    } catch (_err) { alert('Unlock failed'); }
   };
 
   const handleSwap = async (id) => {

@@ -116,7 +116,7 @@ export default function ElectivesPage() {
         try {
             await electivesApi.delete(id);
             fetchData();
-        } catch (err) {
+        } catch (_err) {
             setError('Failed to delete basket');
         }
     };
