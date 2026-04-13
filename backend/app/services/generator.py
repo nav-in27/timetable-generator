@@ -1,4 +1,4 @@
-﻿"""
+"""
 READ-ONLY COLLEGE TIMETABLE GENERATION ENGINE
 ==============================================
 
@@ -1811,7 +1811,8 @@ class TimetableGenerator:
         
         CRITICAL RULES:
         - Only use teachers EXPLICITLY assigned to subjects
-        - If multiple teachers exist, use the FIRST one (deterministic order by ID)
+        - Validate against cross-department permissions (Home Dept, Allowed Depts, or Common Service)
+        - If multiple eligible teachers exist, use the FIRST one (deterministic order by ID)
         - DO NOT guess, rotate, or infer teachers
         """
         assignment_map: Dict[Tuple[int, int, str], int] = {}
@@ -1830,8 +1831,21 @@ class TimetableGenerator:
             if row.subject_id not in subject_to_teachers:
                 subject_to_teachers[row.subject_id] = []
             subject_to_teachers[row.subject_id].append(row.teacher_id)
+            
+        # Pre-fetch teacher cross-department permissions
+        teachers = self.db.query(Teacher).all()
+        teacher_perms: Dict[int, Dict] = {}
+        for t in teachers:
+            teacher_perms[t.id] = {
+                "home_dept_id": t.dept_id,
+                "is_common": getattr(t, "is_common_service_dept", False),
+                "allowed_depts": set(d.id for d in getattr(t, "allowed_departments", []))
+            }
         
         for semester in semesters:
+            # We need to match with semester's department
+            sem_dept_id = getattr(semester, 'dept_id', None)
+            
             for subject in semester.subjects:
                 # Get teachers for this subject
                 teachers_for_subject = subject_to_teachers.get(subject.id, [])
@@ -1840,8 +1854,33 @@ class TimetableGenerator:
                     self._trace(f"   [NO TEACHER] {subject.code} in {semester.name}: Subject NOT eligible for scheduling")
                     continue
                 
-                # Use the first assigned teacher (deterministic, ordered by ID)
-                teacher_id = teachers_for_subject[0]
+                # Find the first ELIGIBLE teacher for this department
+                valid_teacher_id = None
+                for tid in teachers_for_subject:
+                    perms = teacher_perms.get(tid)
+                    if not perms:
+                        continue
+                    
+                    # Eligibility Rules:
+                    # 1. Common Service Dept (can teach anywhere)
+                    # 2. Home Department is the same
+                    # 3. Explicitly allowed in secondary departments
+                    if perms["is_common"]:
+                        valid_teacher_id = tid
+                        break
+                    elif sem_dept_id is None or perms["home_dept_id"] == sem_dept_id:
+                        valid_teacher_id = tid
+                        break
+                    elif sem_dept_id in perms["allowed_depts"]:
+                        valid_teacher_id = tid
+                        break
+                
+                if not valid_teacher_id:
+                    self._trace(f"   [NO ELIGIBLE TEACHER] {subject.code} in {semester.name}: Teachers exist but not permitted for dept {sem_dept_id}")
+                    continue
+                
+                # Use the eligible teacher
+                teacher_id = valid_teacher_id
                 
                 # Determine components
                 components = self._get_subject_components(subject)
@@ -1852,7 +1891,7 @@ class TimetableGenerator:
                     if key not in assignment_map:
                         assignment_map[key] = teacher_id
                         self._trace(
-                            f"   READ [INFERRED]: Class {semester.id}, Subject {subject.id} ({subject.code}), {comp_type.value} -> Teacher {teacher_id}"
+                            f"   READ [INFERRED/VALIDATED]: Class {semester.id}, Subject {subject.id} ({subject.code}), {comp_type.value} -> Teacher {teacher_id}"
                         )
         
         return assignment_map

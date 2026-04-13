@@ -1,0 +1,780 @@
+"""
+Teacher Mapping Import Service — Bulk Excel/CSV import for teacher-class-subject mappings.
+
+Pipeline:
+1. Parse workbook (XLSX/CSV)
+2. Validate schema (mandatory columns)
+3. Resolve & validate row-level data (teacher, class, subject, batch FK integrity)
+4. Preview import (return row-level results)
+5. Commit transaction (create teachers, append assignments, sync qualifications)
+6. Post-import health check (orphan teachers, missing mappings)
+
+CRITICAL CONTRACT:
+- One row = one teacher-class-subject mapping
+- Preserve existing teacher data
+- Create teacher if teacher_code not found
+- Append ClassSubjectTeacher if teacher exists
+- Validate class belongs to department
+- Validate subject belongs to class semester
+- Prevent duplicate mappings (same teacher+class+subject+component+batch)
+- Batch: Theory=All (no batch_id), Lab=B1/B2/B3 (resolve to Batch FK)
+- Rollback on fatal error
+"""
+from __future__ import annotations
+
+import csv
+import io
+import logging
+import traceback
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger("app.services.teacher_mapping_import")
+
+# ============================================================================
+# COLUMN SPECIFICATION
+# ============================================================================
+
+EXPECTED_COLUMNS = [
+    "Teacher Name",
+    "Teacher Code",
+    "Department",
+    "Class Assigned",
+    "Subject Assigned",
+    "Type",
+    "Batch",
+    "Allowed Departments",
+]
+
+REQUIRED_COLUMNS = EXPECTED_COLUMNS[:6]  # First 6 are mandatory (Batch can be empty)
+
+EXPECTED_SHEET_NAME = "TEACHER_MAPPING"
+
+
+# ============================================================================
+# RESULT CLASSES
+# ============================================================================
+
+class RowResult:
+    """Validation result for a single row."""
+    __slots__ = ("row_num", "data", "errors", "warnings", "status", "assignment_id", "teacher_id")
+
+    def __init__(self, row_num: int, data: dict):
+        self.row_num = row_num
+        self.data = data
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+        self.status = "pending"
+        self.assignment_id: Optional[int] = None
+        self.teacher_id: Optional[int] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "row": self.row_num,
+            "data": self.data,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "status": self.status,
+            "assignment_id": self.assignment_id,
+            "teacher_id": self.teacher_id,
+        }
+
+
+class ImportResult:
+    """Aggregate import result."""
+
+    def __init__(self):
+        self.rows: List[RowResult] = []
+        self.schema_errors: List[str] = []
+        self.created_teachers = 0
+        self.created_mappings = 0
+        self.skipped_duplicates = 0
+        self.failed = 0
+        self.total_rows = 0
+        self.health_check: dict = {}
+        self.batch_id: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_errors": self.schema_errors,
+            "total_rows": self.total_rows,
+            "created_teachers": self.created_teachers,
+            "created_mappings": self.created_mappings,
+            "skipped_duplicates": self.skipped_duplicates,
+            "failed": self.failed,
+            "health_check": self.health_check,
+            "batch_id": self.batch_id,
+            "rows": [r.to_dict() for r in self.rows],
+        }
+
+
+# ============================================================================
+# SERVICE
+# ============================================================================
+
+class TeacherMappingImportService:
+    """High-performance bulk teacher mapping import pipeline."""
+
+    CHUNK_SIZE = 200
+
+    def __init__(self, db: Session):
+        self.db = db
+        self._dept_cache: Optional[Dict[str, int]] = None          # name/code -> id
+        self._class_cache: Optional[Dict[str, Any]] = None         # code -> Semester
+        self._subject_cache: Optional[Dict[str, Any]] = None       # code -> Subject
+        self._teacher_cache: Optional[Dict[str, Any]] = None       # teacher_code -> Teacher
+        self._batch_cache: Optional[Dict[str, Dict[str, Any]]] = None  # sem_id -> {batch_name -> Batch}
+        self._subject_semester_set: Optional[Set[Tuple[int, int]]] = None  # (subject_id, semester_id)
+
+    # ------------------------------------------------------------------
+    # PUBLIC: Full pipeline
+    # ------------------------------------------------------------------
+
+    def parse_and_validate(self, file_bytes: bytes, filename: str) -> ImportResult:
+        """Parse file, validate schema + rows, return preview (no DB write)."""
+        result = ImportResult()
+        result.batch_id = f"teacher_import_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+
+        raw_rows = self._parse_file(file_bytes, filename, result)
+        if result.schema_errors:
+            return result
+
+        self._warm_caches()
+        for row in raw_rows:
+            self._validate_row(row)
+
+        result.rows = raw_rows
+        result.total_rows = len(raw_rows)
+        result.failed = sum(1 for r in raw_rows if r.status == "invalid")
+
+        return result
+
+    def commit_import(self, result: ImportResult) -> ImportResult:
+        """Commit validated rows inside a single atomic transaction."""
+        from app.db.models import (
+            Teacher, Subject, Semester, Batch,
+            ClassSubjectTeacher, ComponentType,
+            teacher_subjects,
+        )
+
+        if result.schema_errors:
+            return result
+
+        valid_rows = [r for r in result.rows if r.status != "invalid"]
+        if not valid_rows:
+            result.failed = len(result.rows)
+            return result
+
+        self._warm_caches()
+
+        try:
+            for row in valid_rows:
+                self._upsert_row(row)
+
+            self.db.commit()
+
+            # Count results
+            for r in result.rows:
+                if r.status == "created":
+                    result.created_mappings += 1
+                elif r.status == "created_teacher":
+                    result.created_teachers += 1
+                    result.created_mappings += 1
+                elif r.status == "duplicate":
+                    result.skipped_duplicates += 1
+                elif r.status == "invalid":
+                    result.failed += 1
+
+            result.health_check = self._run_health_check()
+
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Teacher mapping import failed — rolled back: {e}\n{traceback.format_exc()}")
+            for row in valid_rows:
+                if row.status not in ("invalid",):
+                    row.status = "rollback"
+                    row.errors.append(f"Transaction rolled back: {str(e)}")
+            result.failed = len(valid_rows)
+            result.created_mappings = 0
+            result.created_teachers = 0
+
+        return result
+
+    # ------------------------------------------------------------------
+    # PARSING
+    # ------------------------------------------------------------------
+
+    def _parse_file(self, file_bytes: bytes, filename: str, result: ImportResult) -> List[RowResult]:
+        lower = filename.lower()
+        if lower.endswith(".xlsx") or lower.endswith(".xls"):
+            return self._parse_excel(file_bytes, result)
+        elif lower.endswith(".csv"):
+            return self._parse_csv(file_bytes, result)
+        else:
+            result.schema_errors.append(f"Unsupported file format: {filename}. Use .xlsx or .csv")
+            return []
+
+    def _parse_excel(self, file_bytes: bytes, result: ImportResult) -> List[RowResult]:
+        try:
+            import openpyxl
+        except ImportError:
+            result.schema_errors.append("openpyxl not installed on server")
+            return []
+
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        except Exception as e:
+            result.schema_errors.append(f"Cannot read Excel file: {e}")
+            return []
+
+        sheet = None
+        for name in wb.sheetnames:
+            if name.strip().upper() == EXPECTED_SHEET_NAME:
+                sheet = wb[name]
+                break
+        if sheet is None:
+            sheet = wb.active
+            if sheet is None:
+                result.schema_errors.append("No worksheets found in file")
+                return []
+
+        rows_iter = sheet.iter_rows(values_only=True)
+        try:
+            header_row = next(rows_iter)
+        except StopIteration:
+            result.schema_errors.append("Sheet is empty — no header row")
+            return []
+
+        headers = [str(h).strip() if h else "" for h in header_row]
+        col_map = self._validate_schema(headers, result)
+        if result.schema_errors:
+            return []
+
+        raw_rows: List[RowResult] = []
+        for idx, values in enumerate(rows_iter, start=2):
+            if not any(v is not None and str(v).strip() for v in values):
+                continue
+            data = {}
+            for expected_col, col_idx in col_map.items():
+                if col_idx < 0:
+                    data[expected_col] = ""
+                    continue
+                val = values[col_idx] if col_idx < len(values) else None
+                data[expected_col] = str(val).strip() if val is not None else ""
+            raw_rows.append(RowResult(row_num=idx, data=data))
+
+        return raw_rows
+
+    def _parse_csv(self, file_bytes: bytes, result: ImportResult) -> List[RowResult]:
+        try:
+            text = file_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text = file_bytes.decode("latin-1")
+            except Exception:
+                result.schema_errors.append("Cannot decode CSV file")
+                return []
+
+        reader = csv.reader(io.StringIO(text))
+        try:
+            headers = [h.strip() for h in next(reader)]
+        except StopIteration:
+            result.schema_errors.append("CSV file is empty")
+            return []
+
+        col_map = self._validate_schema(headers, result)
+        if result.schema_errors:
+            return []
+
+        raw_rows: List[RowResult] = []
+        for idx, values in enumerate(reader, start=2):
+            if not any(v.strip() for v in values):
+                continue
+            data = {}
+            for expected_col, col_idx in col_map.items():
+                if col_idx < 0:
+                    data[expected_col] = ""
+                    continue
+                val = values[col_idx] if col_idx < len(values) else ""
+                data[expected_col] = val.strip()
+            raw_rows.append(RowResult(row_num=idx, data=data))
+
+        return raw_rows
+
+    # ------------------------------------------------------------------
+    # SCHEMA VALIDATION
+    # ------------------------------------------------------------------
+
+    def _validate_schema(self, headers: List[str], result: ImportResult) -> Dict[str, int]:
+        normalized = [h.lower().strip() for h in headers]
+        col_map: Dict[str, int] = {}
+
+        for expected_col in EXPECTED_COLUMNS:
+            norm_expected = expected_col.lower().strip()
+            if norm_expected in normalized:
+                col_map[expected_col] = normalized.index(norm_expected)
+            else:
+                found = False
+                for i, h in enumerate(normalized):
+                    if (norm_expected.replace(" ", "") == h.replace(" ", "")
+                            or norm_expected.replace(" ", "_") == h.replace(" ", "_")):
+                        col_map[expected_col] = i
+                        found = True
+                        break
+                if not found and expected_col in REQUIRED_COLUMNS:
+                    result.schema_errors.append(
+                        f"Missing required column: '{expected_col}' (found: {headers})"
+                    )
+                elif not found:
+                    col_map[expected_col] = -1
+
+        return col_map
+
+    # ------------------------------------------------------------------
+    # ROW VALIDATION
+    # ------------------------------------------------------------------
+
+    def _validate_row(self, row: RowResult):
+        """Validate individual row data against database."""
+        d = row.data
+        errors = row.errors
+        warnings = row.warnings
+
+        # 1) Teacher Name required
+        if not d.get("Teacher Name", "").strip():
+            errors.append("Teacher Name is required")
+
+        # 2) Teacher Code required
+        teacher_code = d.get("Teacher Code", "").strip()
+        if not teacher_code:
+            errors.append("Teacher Code is required")
+        elif teacher_code not in self._teacher_cache:
+            warnings.append(f"Teacher '{teacher_code}' not found — will CREATE new teacher")
+
+        # 3) Department required and must exist
+        dept_str = d.get("Department", "").strip()
+        if not dept_str:
+            errors.append("Department is required")
+        else:
+            dept_id = self._resolve_dept(dept_str)
+            if dept_id is None:
+                errors.append(f"Department '{dept_str}' not found in database")
+
+        # 4) Class Assigned required and must exist
+        class_str = d.get("Class Assigned", "").strip()
+        if not class_str:
+            errors.append("Class Assigned is required")
+        else:
+            semester = self._resolve_class(class_str)
+            if semester is None:
+                errors.append(f"Class '{class_str}' not found in database")
+            elif dept_str:
+                # Validate class belongs to department
+                dept_id = self._resolve_dept(dept_str)
+                if dept_id and semester.dept_id and semester.dept_id != dept_id:
+                    errors.append(
+                        f"Class '{class_str}' (dept_id={semester.dept_id}) "
+                        f"does not belong to department '{dept_str}' (id={dept_id})"
+                    )
+
+        # 5) Subject Assigned required and must exist
+        subject_str = d.get("Subject Assigned", "").strip()
+        if not subject_str:
+            errors.append("Subject Assigned is required")
+        else:
+            subject = self._resolve_subject(subject_str)
+            if subject is None:
+                errors.append(f"Subject '{subject_str}' not found in database")
+            elif class_str:
+                # Validate subject belongs to this class
+                semester = self._resolve_class(class_str)
+                if semester and subject and (subject.id, semester.id) not in self._subject_semester_set:
+                    errors.append(
+                        f"Subject '{subject_str}' is not assigned to class '{class_str}'. "
+                        f"Assign the subject to this class first."
+                    )
+
+        # 6) Type must be Theory/Lab/Tutorial
+        type_str = d.get("Type", "Theory").strip().lower()
+        valid_types = {"theory", "lab", "tutorial", "self_study"}
+        if type_str not in valid_types:
+            errors.append(f"Type must be one of {list(valid_types)}, got '{d.get('Type')}'")
+        else:
+            # Validate component type against subject hours
+            subject = self._resolve_subject(subject_str) if subject_str else None
+            if subject:
+                if type_str == "theory" and (subject.theory_hours_per_week or 0) <= 0:
+                    errors.append(f"Subject '{subject_str}' has 0 theory hours")
+                elif type_str == "lab" and (subject.lab_hours_per_week or 0) <= 0:
+                    errors.append(f"Subject '{subject_str}' has 0 lab hours")
+                elif type_str == "tutorial" and (subject.tutorial_hours_per_week or 0) <= 0:
+                    errors.append(f"Subject '{subject_str}' has 0 tutorial hours")
+
+        # 7) Batch validation
+        batch_str = d.get("Batch", "").strip().upper()
+        if batch_str and batch_str not in ("ALL", "", "NONE", "-"):
+            # Must resolve batch for the class
+            semester = self._resolve_class(class_str) if class_str else None
+            if semester:
+                sem_batches = self._batch_cache.get(semester.id, {})
+                if batch_str not in {k.upper() for k in sem_batches}:
+                    errors.append(
+                        f"Batch '{batch_str}' not found for class '{class_str}'. "
+                        f"Available: {list(sem_batches.keys()) if sem_batches else 'none'}"
+                    )
+        elif type_str == "lab" and (not batch_str or batch_str in ("ALL", "", "NONE", "-")):
+            # Lab without batch is allowed (whole class lab) but warn
+            warnings.append("Lab type without a specific batch — will assign to whole class")
+
+        # 8) Duplicate check in current results
+        if not errors:
+            # Build a key for this mapping
+            key = (teacher_code.upper(), class_str.upper(), subject_str.upper(), type_str, batch_str)
+            if not hasattr(self, '_seen_mappings'):
+                self._seen_mappings = set()
+            if key in self._seen_mappings:
+                errors.append("Duplicate row — same teacher+class+subject+type+batch appears twice in file")
+            else:
+                self._seen_mappings.add(key)
+
+        row.status = "invalid" if errors else "valid"
+
+    # ------------------------------------------------------------------
+    # RESOLUTION HELPERS
+    # ------------------------------------------------------------------
+
+    def _resolve_dept(self, dept_str: str) -> Optional[int]:
+        """Resolve department name/code to ID."""
+        for key, did in self._dept_cache.items():
+            if key.upper() == dept_str.upper():
+                return did
+        return None
+
+    def _resolve_class(self, class_str: str):
+        """Resolve class code/name to Semester object."""
+        # Try exact code match first
+        for key, sem in self._class_cache.items():
+            if key.upper() == class_str.upper():
+                return sem
+        # Then try name match
+        for key, sem in self._class_cache.items():
+            if sem.name and sem.name.upper() == class_str.upper():
+                return sem
+        return None
+
+    def _resolve_subject(self, subject_str: str):
+        """Resolve subject code/name to Subject object."""
+        # Try exact code match
+        for key, sub in self._subject_cache.items():
+            if key.upper() == subject_str.upper():
+                return sub
+        # Then try name match
+        for key, sub in self._subject_cache.items():
+            if sub.name and sub.name.upper() == subject_str.upper():
+                return sub
+        return None
+
+    def _resolve_batch(self, semester_id: int, batch_str: str):
+        """Resolve batch name to Batch object for a given semester."""
+        sem_batches = self._batch_cache.get(semester_id, {})
+        for key, batch in sem_batches.items():
+            if key.upper() == batch_str.upper():
+                return batch
+        return None
+
+    # ------------------------------------------------------------------
+    # UPSERT
+    # ------------------------------------------------------------------
+
+    def _upsert_row(self, row: RowResult):
+        """Process a single row: create teacher if needed, then create the mapping."""
+        from app.db.models import (
+            Teacher, Subject, Semester, Batch,
+            ClassSubjectTeacher, ComponentType, Department,
+            teacher_subjects,
+        )
+
+        d = row.data
+        teacher_code = d["Teacher Code"].strip()
+        teacher_name = d["Teacher Name"].strip()
+        dept_str = d["Department"].strip()
+        class_str = d["Class Assigned"].strip()
+        subject_str = d["Subject Assigned"].strip()
+        type_str = d.get("Type", "Theory").strip().lower()
+        batch_str = d.get("Batch", "").strip().upper()
+        allowed_depts_str = d.get("Allowed Departments", "").strip()
+
+        # Resolve dept
+        dept_id = self._resolve_dept(dept_str)
+        
+        # Resolve allowed departments
+        allowed_depts = []
+        is_common_service = False
+        if allowed_depts_str:
+            if allowed_depts_str.upper() in ["ALL", "COMMON", "ANY"]:
+                is_common_service = True
+            else:
+                dept_names = [name.strip() for name in allowed_depts_str.replace(";", ",").split(",") if name.strip()]
+                for name in dept_names:
+                    a_dept_id = self._resolve_dept(name)
+                    if a_dept_id:
+                        dept = self.db.query(Department).filter(Department.id == a_dept_id).first()
+                        if dept and dept not in allowed_depts:
+                            allowed_depts.append(dept)
+
+        # Resolve or create teacher
+        teacher = self._teacher_cache.get(teacher_code)
+        created_new_teacher = False
+
+        if not teacher:
+            teacher = Teacher(
+                name=teacher_name,
+                teacher_code=teacher_code,
+                dept_id=dept_id,
+                max_hours_per_week=20,
+                experience_years=1,
+                experience_score=0.5,
+                available_days="0,1,2,3,4",
+                is_active=True,
+                is_common_service_dept=is_common_service
+            )
+            if allowed_depts:
+                teacher.allowed_departments = allowed_depts
+                
+            self.db.add(teacher)
+            self.db.flush()  # Get the ID
+            self._teacher_cache[teacher_code] = teacher
+            created_new_teacher = True
+        else:
+            # Update name if different (preserve other data)
+            if teacher.name != teacher_name:
+                teacher.name = teacher_name
+            
+            # Optionally update allowed_departments if specified and teacher already exists
+            # Only doing it if explicitly provided in the import to enhance existing teacher
+            if is_common_service and not teacher.is_common_service_dept:
+                teacher.is_common_service_dept = True
+            if allowed_depts:
+                existing_depts = {d.id for d in teacher.allowed_departments}
+                for d in allowed_depts:
+                    if d.id not in existing_depts:
+                        teacher.allowed_departments.append(d)
+
+
+        # Resolve class & subject
+        semester = self._resolve_class(class_str)
+        subject = self._resolve_subject(subject_str)
+
+        if not semester or not subject:
+            row.status = "invalid"
+            row.errors.append("Failed to resolve class or subject during commit")
+            return
+
+        # Map component type
+        comp_type_map = {
+            "theory": ComponentType.THEORY,
+            "lab": ComponentType.LAB,
+            "tutorial": ComponentType.TUTORIAL,
+            "self_study": ComponentType.SELF_STUDY,
+        }
+        component_type = comp_type_map.get(type_str, ComponentType.THEORY)
+
+        # Resolve batch
+        batch_id = None
+        if batch_str and batch_str not in ("ALL", "", "NONE", "-"):
+            batch = self._resolve_batch(semester.id, batch_str)
+            if batch:
+                batch_id = batch.id
+
+        # Check for existing duplicate mapping in DB
+        existing = self.db.query(ClassSubjectTeacher).filter(
+            ClassSubjectTeacher.teacher_id == teacher.id,
+            ClassSubjectTeacher.semester_id == semester.id,
+            ClassSubjectTeacher.subject_id == subject.id,
+            ClassSubjectTeacher.component_type == component_type,
+        )
+        if batch_id is not None:
+            existing = existing.filter(ClassSubjectTeacher.batch_id == batch_id)
+        else:
+            existing = existing.filter(ClassSubjectTeacher.batch_id.is_(None))
+
+        existing_row = existing.first()
+
+        if existing_row:
+            row.status = "duplicate"
+            row.assignment_id = existing_row.id
+            row.teacher_id = teacher.id
+            row.warnings.append("Mapping already exists — skipped")
+            return
+
+        # Create the mapping
+        assignment = ClassSubjectTeacher(
+            teacher_id=teacher.id,
+            semester_id=semester.id,
+            subject_id=subject.id,
+            component_type=component_type,
+            batch_id=batch_id,
+            is_locked=True,
+            assignment_reason="bulk_import",
+        )
+        self.db.add(assignment)
+
+        # Sync teacher qualification (teacher_subjects M2M)
+        if subject not in teacher.subjects:
+            teacher.subjects.append(subject)
+
+        self.db.flush()
+
+        row.assignment_id = assignment.id
+        row.teacher_id = teacher.id
+        row.status = "created_teacher" if created_new_teacher else "created"
+
+    # ------------------------------------------------------------------
+    # CACHE WARMING
+    # ------------------------------------------------------------------
+
+    def _warm_caches(self):
+        """Populate lazy caches for fast lookups."""
+        from app.db.models import Department, Semester, Subject, Teacher, Batch, subject_semesters
+
+        if self._dept_cache is None:
+            depts = self.db.query(Department).all()
+            self._dept_cache = {}
+            for d in depts:
+                self._dept_cache[d.code] = d.id
+                self._dept_cache[d.name] = d.id
+
+        if self._class_cache is None:
+            semesters = self.db.query(Semester).all()
+            self._class_cache = {}
+            for s in semesters:
+                self._class_cache[s.code] = s
+                if s.name:
+                    self._class_cache[s.name] = s
+
+        if self._subject_cache is None:
+            subjects = self.db.query(Subject).all()
+            self._subject_cache = {}
+            for s in subjects:
+                self._subject_cache[s.code] = s
+                if s.name:
+                    self._subject_cache[s.name] = s
+
+        if self._teacher_cache is None:
+            teachers = self.db.query(Teacher).all()
+            self._teacher_cache = {t.teacher_code: t for t in teachers if t.teacher_code}
+
+        if self._batch_cache is None:
+            batches = self.db.query(Batch).all()
+            self._batch_cache = {}
+            for b in batches:
+                if b.semester_id not in self._batch_cache:
+                    self._batch_cache[b.semester_id] = {}
+                self._batch_cache[b.semester_id][b.name] = b
+
+        if self._subject_semester_set is None:
+            rows = self.db.execute(subject_semesters.select()).fetchall()
+            self._subject_semester_set = {(r.subject_id, r.semester_id) for r in rows}
+
+        # Reset seen mappings for validation
+        self._seen_mappings = set()
+
+    # ------------------------------------------------------------------
+    # HEALTH CHECK
+    # ------------------------------------------------------------------
+
+    def _run_health_check(self) -> dict:
+        """Run post-import validation checks."""
+        from app.db.models import Teacher, ClassSubjectTeacher, Subject
+
+        errors = []
+        warnings = []
+
+        # 1) Teachers without any assignments
+        teacher_count = self.db.query(Teacher).filter(Teacher.is_active == True).count()
+        assigned_teacher_ids = {
+            r[0] for r in self.db.query(ClassSubjectTeacher.teacher_id).distinct().all()
+        }
+        active_teachers = self.db.query(Teacher).filter(Teacher.is_active == True).all()
+        unassigned = [t for t in active_teachers if t.id not in assigned_teacher_ids]
+        if unassigned:
+            warnings.append(f"{len(unassigned)} active teacher(s) have no class assignments")
+
+        # 2) Total mappings
+        total_mappings = self.db.query(ClassSubjectTeacher).count()
+
+        # 3) Check for subjects with no teacher assigned
+        all_subjects = self.db.query(Subject).count()
+        mapped_subject_ids = {
+            r[0] for r in self.db.query(ClassSubjectTeacher.subject_id).distinct().all()
+        }
+        unmapped = all_subjects - len(mapped_subject_ids)
+        if unmapped > 0:
+            warnings.append(f"{unmapped} subject(s) have no teacher assigned")
+
+        return {
+            "total_teachers": teacher_count,
+            "total_mappings": total_mappings,
+            "errors": errors,
+            "warnings": warnings,
+            "all_clear": len(errors) == 0,
+        }
+
+    # ------------------------------------------------------------------
+    # TEMPLATE GENERATION
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def generate_template() -> bytes:
+        """Generate a downloadable Excel template with TEACHER_MAPPING sheet."""
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = EXPECTED_SHEET_NAME
+
+        header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="0F4C81", end_color="0F4C81", fill_type="solid")
+        header_border = Border(
+            bottom=Side(style="medium", color="000000"),
+            right=Side(style="thin", color="CCCCCC"),
+        )
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        for col_idx, col_name in enumerate(EXPECTED_COLUMNS, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = header_border
+
+        widths = [22, 14, 12, 14, 18, 10, 8]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        examples = [
+            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Theory", "All"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Lab", "B1"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3B", "CS201", "Theory", "All"],
+            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Theory", "All"],
+            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Lab", "B2"],
+        ]
+
+        example_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        for row_idx, row_data in enumerate(examples, start=2):
+            for col_idx, val in enumerate(row_data, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.fill = example_fill
+                cell.alignment = Alignment(horizontal="center")
+
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(EXPECTED_COLUMNS))}1"
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()

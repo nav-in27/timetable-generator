@@ -144,6 +144,11 @@ def create_subject(subject_data: SubjectCreate, db: Session = Depends(get_db)):
             )
         
         subject.semesters = semesters
+        
+        # AUTO-ASSIGN DEPT_ID if not provided
+        if not subject.dept_id and semesters:
+            # Use the department of the first assigned semester
+            subject.dept_id = semesters[0].dept_id
     
     # Handle elective basket
     if subject_data.elective_basket_id:
@@ -189,6 +194,10 @@ def update_subject(subject_id: int, subject_data: SubjectUpdate, db: Session = D
                 )
             
             subject.semesters = semesters
+
+            # AUTO-ASSIGN DEPT_ID if it was missing and we now have semesters
+            if not subject.dept_id and semesters:
+                subject.dept_id = semesters[0].dept_id
     
     # Handle elective basket
     if 'elective_basket_id' in update_data:

@@ -17,6 +17,8 @@ from app.db.models import (
     Semester,
     ComponentType,
     Batch,
+    Department,
+    teacher_allowed_departments,
 )
 from app.schemas.schemas import TeacherCreate, TeacherUpdate, TeacherResponse, ClassSubjectTeacherCreate, ClassSubjectTeacherResponse
 
@@ -38,7 +40,8 @@ def list_teachers(
         selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.semester),
         selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.room),
         selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.subject).selectinload(Subject.semesters),
-        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.batch)
+        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.batch),
+        selectinload(Teacher.allowed_departments),
     )
     if active_only:
         query = query.filter(Teacher.is_active == True)
@@ -62,7 +65,8 @@ def get_teacher(teacher_id: int, db: Session = Depends(get_db)):
         selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.semester),
         selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.room),
         selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.subject).selectinload(Subject.semesters),
-        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.batch)
+        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.batch),
+        selectinload(Teacher.allowed_departments),
     ).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
@@ -72,69 +76,73 @@ def get_teacher(teacher_id: int, db: Session = Depends(get_db)):
 @router.post("/", response_model=TeacherResponse, status_code=status.HTTP_201_CREATED)
 def create_teacher(teacher_data: TeacherCreate, db: Session = Depends(get_db)):
     """Create a new teacher."""
-    # Check for duplicate email if provided
     if teacher_data.email:
         existing = db.query(Teacher).filter(Teacher.email == teacher_data.email).first()
         if existing:
             raise HTTPException(status_code=400, detail="Teacher with this email already exists")
             
-    # Check teacher_code uniqueness
     if db.query(Teacher).filter(Teacher.teacher_code == teacher_data.teacher_code).first():
         raise HTTPException(status_code=400, detail="Teacher code already exists")
     
-    # Extract subject_ids
     subject_ids = teacher_data.subject_ids
-    teacher_dict = teacher_data.model_dump(exclude={"subject_ids"})
+    allowed_department_ids = teacher_data.allowed_department_ids
+    teacher_dict = teacher_data.model_dump(exclude={"subject_ids", "allowed_department_ids"})
     
-    # Fix: Convert empty string email to None to avoid unique constraint violation
     if "email" in teacher_dict and teacher_dict["email"] == "":
         teacher_dict["email"] = None
     
     teacher = Teacher(**teacher_dict)
     
-    # Add subjects
     if subject_ids:
         subjects = db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
         teacher.subjects = subjects
+    
+    if allowed_department_ids:
+        depts = db.query(Department).filter(Department.id.in_(allowed_department_ids)).all()
+        teacher.allowed_departments = depts
     
     db.add(teacher)
     db.commit()
     db.refresh(teacher)
     return teacher
 
-
 @router.put("/{teacher_id}", response_model=TeacherResponse)
 def update_teacher(teacher_id: int, teacher_data: TeacherUpdate, db: Session = Depends(get_db)):
     """Update a teacher."""
-    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
+    teacher = db.query(Teacher).options(
+        selectinload(Teacher.subjects),
+        selectinload(Teacher.allowed_departments)
+    ).filter(Teacher.id == teacher_id).first()
+    
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
     
     update_data = teacher_data.model_dump(exclude_unset=True)
     
-    # Fix: Convert empty string email to None
     if "email" in update_data and update_data["email"] == "":
         update_data["email"] = None
         
-    # Check for duplicate email if changing email
     if "email" in update_data and update_data["email"] is not None:
-         # simplified check: if email is being set to something that isn't None
          existing = db.query(Teacher).filter(Teacher.email == update_data["email"]).first()
          if existing and existing.id != teacher_id:
              raise HTTPException(status_code=400, detail="Teacher with this email already exists")
 
-    # Check for duplicate teacher_code
     if "teacher_code" in update_data and update_data["teacher_code"]:
         existing_code = db.query(Teacher).filter(Teacher.teacher_code == update_data["teacher_code"]).first()
         if existing_code and existing_code.id != teacher_id:
              raise HTTPException(status_code=400, detail="Teacher code already exists")
     
-    # Handle subject_ids separately
     if "subject_ids" in update_data:
         subject_ids = update_data.pop("subject_ids")
         if subject_ids is not None:
             subjects = db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
             teacher.subjects = subjects
+    
+    if "allowed_department_ids" in update_data:
+        dept_ids = update_data.pop("allowed_department_ids")
+        if dept_ids is not None:
+            depts = db.query(Department).filter(Department.id.in_(dept_ids)).all()
+            teacher.allowed_departments = depts
     
     for key, value in update_data.items():
         setattr(teacher, key, value)
@@ -143,7 +151,6 @@ def update_teacher(teacher_id: int, teacher_data: TeacherUpdate, db: Session = D
     db.refresh(teacher)
     return teacher
 
-
 @router.delete("/{teacher_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
     """Delete a teacher (soft delete - marks as inactive)."""
@@ -151,7 +158,6 @@ def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
     
-    # Soft delete
     try:
         teacher.is_active = False
         db.commit()
@@ -160,7 +166,6 @@ def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Database error: {str(e)}")
     
     return None
-
 
 @router.post("/{teacher_id}/subjects/{subject_id}", response_model=TeacherResponse)
 def add_subject_to_teacher(
@@ -259,6 +264,26 @@ def add_teacher_assignment(
             status_code=400,
             detail="Subject is not assigned to this class. Assign the subject to this class first."
         )
+
+    # Cross-department capability validation
+    if not getattr(teacher, "is_common_service_dept", False):
+        if hasattr(semester, "dept_id") and semester.dept_id is not None:
+            home_dept_id = getattr(teacher, "dept_id", None)
+            allowed_dept_ids = set()
+            if hasattr(teacher, "allowed_departments"):
+                allowed_dept_ids = {d.id for d in teacher.allowed_departments}
+            
+            if semester.dept_id != home_dept_id and semester.dept_id not in allowed_dept_ids:
+                # Fetch department name for a better error message if possible
+                dept_name = f"Dept ID {semester.dept_id}"
+                dept = db.query(Department).filter(Department.id == semester.dept_id).first()
+                if dept:
+                    dept_name = dept.name
+                    
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cross-Department Mismatch: Teacher is not authorized to teach in '{dept_name}'. Please update their profile to allow it or mark them as Common Service."
+                )
 
     # Validate component against subject configured hours
     if assignment_data.component_type == ComponentType.THEORY and (subject.theory_hours_per_week or 0) <= 0:

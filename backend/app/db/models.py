@@ -114,6 +114,16 @@ room_departments = Table(
     Column("dept_id", Integer, ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# Many-to-Many: Teachers <-> Departments (cross-department teaching permissions)
+# This tracks which departments a teacher is ALLOWED to teach in,
+# beyond their home department (Teacher.dept_id).
+teacher_allowed_departments = Table(
+    "teacher_allowed_departments",
+    Base.metadata,
+    Column("teacher_id", Integer, ForeignKey("teachers.id", ondelete="CASCADE"), primary_key=True),
+    Column("dept_id", Integer, ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 # ============================================================================
 # MODELS
@@ -217,6 +227,10 @@ class Teacher(Base):
     dept_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     college_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     
+    # Cross-Department Teaching
+    # When True, this teacher can teach in ALL departments (e.g. Maths, English, Placement)
+    is_common_service_dept: Mapped[bool] = mapped_column(Boolean, default=False)
+    
     # Relationships
     subjects: Mapped[List["Subject"]] = relationship(
         secondary=teacher_subjects, back_populates="teachers"
@@ -225,6 +239,10 @@ class Teacher(Base):
     absences: Mapped[List["TeacherAbsence"]] = relationship(back_populates="teacher")
     class_assignments: Mapped[List["ClassSubjectTeacher"]] = relationship(
         back_populates="teacher", cascade="all, delete-orphan"
+    )
+    # Cross-department teaching permissions (beyond home dept_id)
+    allowed_departments: Mapped[List["Department"]] = relationship(
+        secondary=teacher_allowed_departments
     )
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

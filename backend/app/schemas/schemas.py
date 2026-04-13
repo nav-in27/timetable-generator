@@ -324,12 +324,16 @@ class TeacherBase(BaseModel):
     # New Fields
     teacher_code: Optional[str] = None
     dept_id: Optional[int] = None
+    
+    # Cross-Department Teaching
+    is_common_service_dept: bool = False
 
 
 class TeacherCreate(TeacherBase):
     teacher_code: str = Field(..., min_length=1, max_length=20)
     dept_id: Optional[int] = None
     subject_ids: List[int] = []
+    allowed_department_ids: List[int] = []
 
 
 class TeacherUpdate(BaseModel):
@@ -345,6 +349,8 @@ class TeacherUpdate(BaseModel):
     is_active: Optional[bool] = None
     dept_id: Optional[int] = None
     subject_ids: Optional[List[int]] = None
+    is_common_service_dept: Optional[bool] = None
+    allowed_department_ids: Optional[List[int]] = None
 
 
 class TeacherBrief(BaseModel):
@@ -463,6 +469,7 @@ class TeacherResponse(TeacherBase):
     id: int
     subjects: List[SubjectResponse] = []
     class_assignments: List[ClassSubjectTeacherResponse] = []
+    allowed_departments: List[DepartmentResponse] = []
     created_at: datetime
     updated_at: datetime
     

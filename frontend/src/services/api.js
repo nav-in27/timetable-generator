@@ -226,10 +226,13 @@ export const teachersApi = {
 export const subjectsApi = {
   getAll: (params = {}) => {
     const searchParams = new URLSearchParams();
-    if (params.deptId) searchParams.append('dept_id', params.deptId);
+    const deptId = params.dept_id || params.department_id || params.deptId;
+    if (deptId) searchParams.append('dept_id', deptId);
     if (params.year) searchParams.append('year', params.year);
     if (params.semester) searchParams.append('semester', params.semester);
     if (params.isElective !== undefined) searchParams.append('is_elective', params.isElective);
+    if (params.skip !== undefined) searchParams.append('skip', params.skip);
+    if (params.limit !== undefined) searchParams.append('limit', params.limit);
     return api.get(`/subjects/?${searchParams.toString()}`);
   },
   getById: (id) => api.get(`/subjects/${id}`),
@@ -434,6 +437,87 @@ export const structuredCompositeBasketsApi = {
 };
 
 
+
+// ============================================================================
+// Subject Bulk Import
+// ============================================================================
+export const subjectImportApi = {
+  upload: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/subjects/import/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
+  commit: (batchId) =>
+    api.post(`/subjects/import/commit?batch_id=${encodeURIComponent(batchId)}`),
+  getTemplateUrl: () => `${api.defaults.baseURL}/subjects/import/template`,
+  healthCheck: () => api.get('/subjects/import/health'),
+};
+
+// ============================================================================
+// Teacher Mapping Bulk Import
+// ============================================================================
+export const teacherImportApi = {
+  upload: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/teachers/import/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
+  commit: (batchId) =>
+    api.post(`/teachers/import/commit?batch_id=${encodeURIComponent(batchId)}`),
+  getTemplateUrl: () => `${api.defaults.baseURL}/teachers/import/template`,
+  healthCheck: () => api.get('/teachers/import/health'),
+};
+
+export const departmentImportApi = {
+  upload: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/departments/import/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
+  commit: (batchId) =>
+    api.post(`/departments/import/commit?batch_id=${encodeURIComponent(batchId)}`),
+  getTemplateUrl: () => `${api.defaults.baseURL}/departments/import/template`,
+  healthCheck: () => api.get('/departments/import/health'),
+};
+
+export const classImportApi = {
+  upload: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/semesters/import/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
+  commit: (batchId) =>
+    api.post(`/semesters/import/commit?batch_id=${encodeURIComponent(batchId)}`),
+  getTemplateUrl: () => `${api.defaults.baseURL}/semesters/import/template`,
+  healthCheck: () => api.get('/semesters/import/health'),
+};
+
+export const roomImportApi = {
+  upload: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/rooms/import/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
+  commit: (batchId) =>
+    api.post(`/rooms/import/commit?batch_id=${encodeURIComponent(batchId)}`),
+  getTemplateUrl: () => `${api.defaults.baseURL}/rooms/import/template`,
+  healthCheck: () => api.get('/rooms/import/health'),
+};
 
 // ============================================================================
 // Allocation Engine (Module 3-6)

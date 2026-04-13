@@ -451,7 +451,7 @@ FUNCTION schedule_lab_block(semester, subject, teacher, rooms):
             
             # REGISTER AS ATOMIC UNIT
             state.register_lab_block(semester, day, start_slot, end_slot, 
-                                     subject, teacher, room)
+                                     subject, teacher, room) 
             
             RETURN SUCCESS
     

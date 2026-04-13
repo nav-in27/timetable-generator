@@ -592,6 +592,10 @@ tbody tr:last-child td {
   }
 }
 
+.spin {
+  animation: spin 0.7s linear infinite;
+}
+
 /* ── Alerts — Rounded, Clean ───────────────────────────────────── */
 .alert {
   padding: 0.875rem 1.125rem;

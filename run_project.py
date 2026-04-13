@@ -135,7 +135,11 @@ def start_backend(port: int):
         creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
     
     backend_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port), "--reload"],
+        [
+            sys.executable, "-m", "uvicorn", "main:app", 
+            "--host", "127.0.0.1", "--port", str(port),
+            "--reload"
+        ],
         cwd=BACKEND_DIR,
         creationflags=creation_flags
     )
@@ -157,12 +161,11 @@ def start_frontend(port: int, api_base_url: str):
     env = os.environ.copy()
     env["VITE_API_URL"] = api_base_url
     
-    # On Windows, we should pass "npm.cmd" if not using shell=True, 
-    # but here shell=True is used which should handle it.
+    npm_cmd = "npm.cmd" if IS_WINDOWS else "npm"
+
     frontend_process = subprocess.Popen(
-        ["npm", "run", "dev", "--", "--port", str(port)],
+        [npm_cmd, "run", "dev", "--", "--host", "127.0.0.1", "--port", str(port), "--strictPort"],
         cwd=FRONTEND_DIR,
-        shell=True,
         creationflags=creation_flags,
         env=env
     )
@@ -258,10 +261,10 @@ def main():
             # Check if processes are still running
             if backend_process and backend_process.poll() is not None:
                 print("\n[WARN] Backend server stopped unexpectedly!")
-                break
+                cleanup()
             if frontend_process and frontend_process.poll() is not None:
                 print("\n[WARN] Frontend server stopped unexpectedly!")
-                break
+                cleanup()
             time.sleep(1)
             
     except KeyboardInterrupt:

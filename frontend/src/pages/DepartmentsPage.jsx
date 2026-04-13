@@ -5,8 +5,8 @@
  * Note: No delete UI by default to avoid accidental data loss/orphaning.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Plus, Edit2, X, Save } from 'lucide-react';
-import { departmentsApi, ruleTogglesApi } from '../services/api';
+import { AlertCircle, Plus, Edit2, X, Save, Upload, Download, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { departmentsApi, ruleTogglesApi, departmentImportApi } from '../services/api';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import './CrudPage.css';
 
@@ -36,6 +36,14 @@ export default function DepartmentsPage() {
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState(null);
     const [formData, setFormData] = useState({ name: '', code: '' });
+
+    // Import State
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const [importResult, setImportResult] = useState(null);
+    const [importLoading, setImportLoading] = useState(false);
+    const [importCommitting, setImportCommitting] = useState(false);
+    const [importStep, setImportStep] = useState('upload'); // upload | preview | committed
 
     // Rule toggles state (per dept)
     const [togglesByDeptId, setTogglesByDeptId] = useState({});
@@ -160,10 +168,20 @@ export default function DepartmentsPage() {
                     <h1>Departments</h1>
                     <p>Add/edit departments and configure optional department rules.</p>
                 </div>
-                <button className="btn btn-primary" onClick={() => openModal()}>
-                    <Plus size={18} />
-                    Add Department
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="btn btn-primary" onClick={() => openModal()}>
+                        <Plus size={18} />
+                        Add Department
+                    </button>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => { setShowImportModal(true); setImportStep('upload'); setImportResult(null); setImportFile(null); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: 'white', border: 'none' }}
+                    >
+                        <Upload size={18} />
+                        Import Excel
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -411,6 +429,317 @@ export default function DepartmentsPage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Import Modal */}
+            {showImportModal && (
+                <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', maxHeight: '90vh', overflow: 'auto' }}>
+                        <div className="modal-header">
+                            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Upload size={22} />
+                                Bulk Department Import
+                            </h2>
+                            <button className="modal-close" onClick={() => setShowImportModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Step 1: Upload */}
+                        {importStep === 'upload' && (
+                            <div style={{ padding: '20px' }}>
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+                                    borderRadius: '12px',
+                                    padding: '20px',
+                                    border: '2px dashed #16a34a',
+                                    textAlign: 'center',
+                                    marginBottom: '16px',
+                                }}>
+                                    <Upload size={40} style={{ color: '#16a34a', marginBottom: '10px' }} />
+                                    <h3 style={{ margin: '0 0 8px 0', color: '#15803d' }}>Upload Excel or CSV</h3>
+                                    <p style={{ fontSize: '13px', color: '#166534', marginBottom: '16px' }}>
+                                        Use the template with DEPARTMENTS sheet and fill in your departments.
+                                    </p>
+                                    <input
+                                        type="file"
+                                        accept=".xlsx,.xls,.csv"
+                                        id="import-file-input"
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => {
+                                            if (e.target.files?.[0]) setImportFile(e.target.files[0]);
+                                        }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                        <label
+                                            htmlFor="import-file-input"
+                                            className="btn btn-primary"
+                                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        >
+                                            <Upload size={16} />
+                                            Choose File
+                                        </label>
+                                        <a
+                                            href={departmentImportApi.getTemplateUrl()}
+                                            className="btn btn-secondary"
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                                        >
+                                            <Download size={16} />
+                                            Download Template
+                                        </a>
+                                    </div>
+                                    {importFile && (
+                                        <div style={{ marginTop: '14px', padding: '10px', background: 'white', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                            <CheckCircle size={16} style={{ color: '#16a34a' }} />
+                                            <strong>{importFile.name}</strong>
+                                            <span style={{ fontSize: '12px', color: '#64748b' }}>({(importFile.size / 1024).toFixed(1)} KB)</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {importFile && (
+                                    <div className="modal-actions">
+                                        <button className="btn btn-secondary" onClick={() => setShowImportModal(false)}>Cancel</button>
+                                        <button
+                                            className="btn btn-primary"
+                                            disabled={importLoading}
+                                            onClick={async () => {
+                                                setImportLoading(true);
+                                                setError(null);
+                                                try {
+                                                    const res = await departmentImportApi.upload(importFile);
+                                                    setImportResult(res.data);
+                                                    setImportStep('preview');
+                                                } catch (err) {
+                                                    const detail = err.response?.data?.detail || err.message;
+                                                    setError(typeof detail === 'object' ? JSON.stringify(detail) : detail);
+                                                } finally {
+                                                    setImportLoading(false);
+                                                }
+                                            }}
+                                        >
+                                            {importLoading ? <><Loader2 size={16} className="spin" /> Validating...</> : 'Validate & Preview'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Step 2: Preview */}
+                        {importStep === 'preview' && importResult && (
+                            <div style={{ padding: '20px' }}>
+                                {importResult.schema_errors?.length > 0 && (
+                                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                                        <h4 style={{ color: '#dc2626', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <XCircle size={18} /> Schema Errors
+                                        </h4>
+                                        {importResult.schema_errors.map((e, i) => (
+                                            <div key={i} style={{ fontSize: '13px', color: '#b91c1c', padding: '4px 0' }}>• {e}</div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {!importResult.schema_errors?.length && (
+                                    <>
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(4, 1fr)',
+                                            gap: '12px',
+                                            marginBottom: '16px',
+                                        }}>
+                                            {[
+                                                { label: 'Total Rows', value: importResult.total_rows, color: '#3b82f6' },
+                                                { label: 'Valid', value: importResult.total_rows - importResult.failed, color: '#16a34a' },
+                                                { label: 'Invalid', value: importResult.failed, color: '#dc2626' },
+                                                { label: 'Will Update', value: importResult.rows?.filter(r => r.warnings?.some(w => w.includes('UPDATE'))).length || 0, color: '#f59e0b' },
+                                            ].map(({ label, value, color }) => (
+                                                <div key={label} style={{
+                                                    textAlign: 'center',
+                                                    padding: '12px',
+                                                    borderRadius: '10px',
+                                                    background: `${color}10`,
+                                                    border: `2px solid ${color}30`,
+                                                }}>
+                                                    <div style={{ fontSize: '24px', fontWeight: '800', color }}>{value}</div>
+                                                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>{label}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div style={{ maxHeight: '400px', overflow: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                                <thead style={{ position: 'sticky', top: 0, background: '#1e293b', color: 'white', zIndex: 1 }}>
+                                                    <tr>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Row</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Status</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Code</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Name</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Issues</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {importResult.rows?.map((row, idx) => {
+                                                        const isInvalid = row.status === 'invalid';
+                                                        const hasWarnings = row.warnings?.length > 0;
+                                                        return (
+                                                            <tr key={idx} style={{
+                                                                background: isInvalid ? '#fef2f2' : hasWarnings ? '#fffbeb' : idx % 2 ? '#f8fafc' : 'white',
+                                                                borderBottom: '1px solid #e2e8f0',
+                                                            }}>
+                                                                <td style={{ padding: '6px 10px', fontWeight: '600' }}>{row.row}</td>
+                                                                <td style={{ padding: '6px 10px' }}>
+                                                                    {isInvalid ? (
+                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#dc2626', fontWeight: '600' }}>
+                                                                            <XCircle size={14} /> Invalid
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: '600' }}>
+                                                                            <CheckCircle size={14} /> Valid
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: '600' }}>{row.data?.['Department Code'] || '—'}</td>
+                                                                <td style={{ padding: '6px 10px' }}>{row.data?.['Department Name'] || '—'}</td>
+                                                                <td style={{ padding: '6px 10px', fontSize: '11px' }}>
+                                                                    {row.errors?.map((e, i) => (
+                                                                        <div key={i} style={{ color: '#dc2626' }}>✗ {e}</div>
+                                                                    ))}
+                                                                    {row.warnings?.map((w, i) => (
+                                                                        <div key={`w${i}`} style={{ color: '#d97706' }}>⚠ {w}</div>
+                                                                    ))}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <div className="modal-actions" style={{ marginTop: '16px' }}>
+                                            <button className="btn btn-secondary" onClick={() => { setImportStep('upload'); setImportResult(null); }}>Back</button>
+                                            <button className="btn btn-secondary" onClick={() => setShowImportModal(false)}>Cancel</button>
+                                            {importResult.failed === 0 && (
+                                                <button
+                                                    className="btn btn-primary"
+                                                    disabled={importCommitting}
+                                                    style={{ background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none' }}
+                                                    onClick={async () => {
+                                                        setImportCommitting(true);
+                                                        setError(null);
+                                                        try {
+                                                            const res = await departmentImportApi.commit(importResult.batch_id);
+                                                            setImportResult(res.data);
+                                                            setImportStep('committed');
+                                                            reloadDepartments();
+                                                        } catch (err) {
+                                                            const detail = err.response?.data?.detail || err.message;
+                                                            setError(typeof detail === 'object' ? JSON.stringify(detail) : detail);
+                                                        } finally {
+                                                            setImportCommitting(false);
+                                                        }
+                                                    }}
+                                                >
+                                                    {importCommitting ? <><Loader2 size={16} className="spin" /> Importing...</> : <><CheckCircle size={16} /> Commit Import ({importResult.total_rows - importResult.failed})</>}
+                                                </button>
+                                            )}
+                                            {importResult.failed > 0 && importResult.total_rows - importResult.failed > 0 && (
+                                                <button
+                                                    className="btn btn-primary"
+                                                    disabled={importCommitting}
+                                                    style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none' }}
+                                                    onClick={async () => {
+                                                        setImportCommitting(true);
+                                                        setError(null);
+                                                        try {
+                                                            const res = await departmentImportApi.commit(importResult.batch_id);
+                                                            setImportResult(res.data);
+                                                            setImportStep('committed');
+                                                            reloadDepartments();
+                                                        } catch (err) {
+                                                            const detail = err.response?.data?.detail || err.message;
+                                                            setError(typeof detail === 'object' ? JSON.stringify(detail) : detail);
+                                                        } finally {
+                                                            setImportCommitting(false);
+                                                        }
+                                                    }}
+                                                >
+                                                    {importCommitting ? <><Loader2 size={16} className="spin" /> Importing...</> : <><CheckCircle size={16} /> Import Valid Only ({importResult.total_rows - importResult.failed})</>}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Step 3: Committed */}
+                        {importStep === 'committed' && importResult && (
+                            <div style={{ padding: '20px' }}>
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '30px',
+                                    background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+                                    borderRadius: '12px',
+                                    marginBottom: '20px',
+                                }}>
+                                    <CheckCircle size={48} style={{ color: '#16a34a', marginBottom: '12px' }} />
+                                    <h3 style={{ color: '#15803d', margin: '0 0 8px 0' }}>Import Successful!</h3>
+                                    <p style={{ color: '#166534', fontSize: '14px', margin: 0 }}>
+                                        Departments are now available in the system.
+                                    </p>
+                                </div>
+
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(4, 1fr)',
+                                    gap: '12px',
+                                    marginBottom: '20px',
+                                }}>
+                                    {[
+                                        { label: 'Imported', value: importResult.imported, color: '#16a34a', icon: '✓' },
+                                        { label: 'Updated', value: importResult.updated, color: '#3b82f6', icon: '↻' },
+                                        { label: 'Skipped', value: importResult.skipped, color: '#f59e0b', icon: '—' },
+                                        { label: 'Failed', value: importResult.failed, color: '#dc2626', icon: '✗' },
+                                    ].map(({ label, value, color, icon }) => (
+                                        <div key={label} style={{
+                                            textAlign: 'center',
+                                            padding: '14px',
+                                            borderRadius: '10px',
+                                            background: `${color}10`,
+                                            border: `2px solid ${color}30`,
+                                        }}>
+                                            <div style={{ fontSize: '28px', fontWeight: '800', color }}>{icon} {value}</div>
+                                            <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>{label}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Health Check */}
+                                {importResult.health_check && (
+                                    <div style={{
+                                        background: importResult.health_check.all_clear ? '#f0fdf4' : '#fffbeb',
+                                        border: `1px solid ${importResult.health_check.all_clear ? '#86efac' : '#fde68a'}`,
+                                        borderRadius: '8px',
+                                        padding: '14px',
+                                        marginBottom: '16px',
+                                    }}>
+                                        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            {importResult.health_check.all_clear ? <CheckCircle size={16} style={{ color: '#16a34a' }} /> : <AlertCircle size={16} style={{ color: '#f59e0b' }} />}
+                                            Post-Import Health Check
+                                        </h4>
+                                        <div style={{ fontSize: '13px', color: '#475569' }}>
+                                            <div>Total Departments: <strong>{importResult.health_check.total_departments}</strong></div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="modal-actions">
+                                    <button className="btn btn-primary" onClick={() => setShowImportModal(false)}>Done</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

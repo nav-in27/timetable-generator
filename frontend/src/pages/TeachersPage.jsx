@@ -14,8 +14,13 @@ import {
     Star,
     AlertCircle,
     Filter,
+    Upload,
+    Download,
+    CheckCircle,
+    XCircle,
+    Loader2,
 } from 'lucide-react';
-import { teachersApi, subjectsApi, semestersApi } from '../services/api';
+import { teachersApi, subjectsApi, semestersApi, teacherImportApi } from '../services/api';
 import { roomsApi } from '../services/api';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import './CrudPage.css';
@@ -32,6 +37,14 @@ export default function TeachersPage() {
     const [showModal, setShowModal] = useState(false);
     const [editingTeacher, setEditingTeacher] = useState(null);
     const [assignmentComponentType, setAssignmentComponentType] = useState('theory');
+
+    // Import State
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const [importResult, setImportResult] = useState(null);
+    const [importLoading, setImportLoading] = useState(false);
+    const [importCommitting, setImportCommitting] = useState(false);
+    const [importStep, setImportStep] = useState('upload');
     const [formData, setFormData] = useState({
         name: '',
         teacher_code: '',
@@ -96,6 +109,8 @@ export default function TeachersPage() {
                 experience_score: teacher.experience_score,
                 available_days: teacher.available_days,
                 subject_ids: teacher.subjects?.map(s => s.id) || [],
+                is_common_service_dept: teacher.is_common_service_dept || false,
+                allowed_department_ids: teacher.allowed_department_ids || [],
             });
         } else {
             setEditingTeacher(null);
@@ -110,6 +125,8 @@ export default function TeachersPage() {
                 experience_score: 0.5,
                 available_days: '0,1,2,3,4',
                 subject_ids: [],
+                is_common_service_dept: false,
+                allowed_department_ids: [],
             });
         }
         setShowModal(true);
@@ -261,10 +278,20 @@ export default function TeachersPage() {
                     <h1>Teachers</h1>
                     <p>Manage faculty members and their subjects</p>
                 </div>
-                <button className="btn btn-primary" onClick={() => openModal()}>
-                    <Plus size={18} />
-                    Add Teacher
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="btn btn-primary" onClick={() => openModal()}>
+                        <Plus size={18} />
+                        Add Teacher
+                    </button>
+                    <button
+                        className="btn"
+                        onClick={() => { setShowImportModal(true); setImportStep('upload'); setImportResult(null); setImportFile(null); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #0f4c81 0%, #1a73e8 100%)', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                        <Upload size={18} />
+                        Import Mappings
+                    </button>
+                </div>
             </div>
 
             {/* Filter Bar */}
@@ -428,7 +455,7 @@ export default function TeachersPage() {
                                 </div>
 
                                 <div className="form-group">
-                                    <label className="form-label">Department</label>
+                                    <label className="form-label">Home Department</label>
                                     <select
                                         className="form-input"
                                         value={formData.dept_id || ''}
@@ -439,6 +466,45 @@ export default function TeachersPage() {
                                             <option key={d.id} value={d.id}>{d.name}</option>
                                         ))}
                                     </select>
+                                </div>
+
+                                <div className="form-group" style={{ marginBottom: "1rem", padding: "10px", background: "var(--gray-50)", borderRadius: "8px", border: "1px solid var(--gray-200)" }}>
+                                    <label className="form-label">Cross-Department Teaching</label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '8px' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.is_common_service_dept}
+                                            onChange={(e) => setFormData({ ...formData, is_common_service_dept: e.target.checked })}
+                                        />
+                                        <span style={{ fontSize: "0.9rem", fontWeight: 500 }}>Common Service Department (Can teach any class)</span>
+                                    </label>
+                                    
+                                    {!formData.is_common_service_dept && formData.dept_id && (
+                                        <div style={{ marginTop: '0.75rem' }}>
+                                            <label className="form-label" style={{ fontSize: '0.85rem', color: 'var(--gray-600)' }}>Allowed Additional Departments</label>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px', padding: '12px', background: 'white', border: '1px solid var(--gray-200)', borderRadius: '6px' }}>
+                                                {departments.filter(d => String(d.id) !== String(formData.dept_id)).map(d => (
+                                                    <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={formData.allowed_department_ids.includes(d.id)}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setFormData({...formData, allowed_department_ids: [...formData.allowed_department_ids, d.id]});
+                                                                } else {
+                                                                    setFormData({...formData, allowed_department_ids: formData.allowed_department_ids.filter(id => id !== d.id)});
+                                                                }
+                                                            }}
+                                                        />
+                                                        {d.name}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <p style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginTop: '6px', fontStyle: 'italic' }}>
+                                                Select departments this teacher is allowed to teach subjects in (e.g., Electives, basic sciences).
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="form-row">
@@ -636,6 +702,297 @@ export default function TeachersPage() {
                     </div >
                 )
             }
+            {/* ── Teacher Mapping Import Modal ───────────────────── */}
+            {showImportModal && (
+                <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '950px', maxHeight: '90vh', overflow: 'auto' }}>
+                        <div className="modal-header">
+                            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Upload size={22} />
+                                Bulk Teacher Mapping Import
+                            </h2>
+                            <button className="modal-close" onClick={() => setShowImportModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Step 1: Upload */}
+                        {importStep === 'upload' && (
+                            <div style={{ padding: '20px' }}>
+                                <div style={{
+                                    background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                                    borderRadius: '12px',
+                                    padding: '20px',
+                                    border: '2px dashed #3b82f6',
+                                    textAlign: 'center',
+                                    marginBottom: '16px',
+                                }}>
+                                    <Upload size={40} style={{ color: '#2563eb', marginBottom: '10px' }} />
+                                    <h3 style={{ margin: '0 0 8px 0', color: '#1e40af' }}>Upload Teacher Mapping File</h3>
+                                    <p style={{ fontSize: '13px', color: '#1e3a5f', marginBottom: '8px' }}>
+                                        Each row maps one teacher to a class + subject + component type.
+                                    </p>
+                                    <p style={{ fontSize: '12px', color: '#475569', marginBottom: '16px' }}>
+                                        Columns: <strong>Teacher Name, Teacher Code, Home Department, Allowed Departments, Class Assigned, Subject Assigned, Type, Batch</strong>
+                                    </p>
+                                    <input
+                                        type="file"
+                                        accept=".xlsx,.xls,.csv"
+                                        id="teacher-import-file-input"
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => {
+                                            if (e.target.files?.[0]) setImportFile(e.target.files[0]);
+                                        }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                        <label
+                                            htmlFor="teacher-import-file-input"
+                                            className="btn btn-primary"
+                                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                        >
+                                            <Upload size={16} />
+                                            Choose File
+                                        </label>
+                                        <a
+                                            href={teacherImportApi.getTemplateUrl()}
+                                            className="btn btn-secondary"
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                                        >
+                                            <Download size={16} />
+                                            Download Template
+                                        </a>
+                                    </div>
+                                    {importFile && (
+                                        <div style={{ marginTop: '14px', padding: '10px', background: 'white', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                            <CheckCircle size={16} style={{ color: '#16a34a' }} />
+                                            <strong>{importFile.name}</strong>
+                                            <span style={{ fontSize: '12px', color: '#64748b' }}>({(importFile.size / 1024).toFixed(1)} KB)</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {importFile && (
+                                    <div className="modal-actions">
+                                        <button className="btn btn-secondary" onClick={() => setShowImportModal(false)}>Cancel</button>
+                                        <button
+                                            className="btn btn-primary"
+                                            disabled={importLoading}
+                                            onClick={async () => {
+                                                setImportLoading(true);
+                                                setError(null);
+                                                try {
+                                                    const res = await teacherImportApi.upload(importFile);
+                                                    setImportResult(res.data);
+                                                    setImportStep('preview');
+                                                } catch (err) {
+                                                    const detail = err.response?.data?.detail || err.message;
+                                                    setError(typeof detail === 'object' ? JSON.stringify(detail) : detail);
+                                                } finally {
+                                                    setImportLoading(false);
+                                                }
+                                            }}
+                                        >
+                                            {importLoading ? <><Loader2 size={16} className="spin" /> Validating...</> : 'Validate & Preview'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Step 2: Preview */}
+                        {importStep === 'preview' && importResult && (
+                            <div style={{ padding: '20px' }}>
+                                {importResult.schema_errors?.length > 0 && (
+                                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                                        <h4 style={{ color: '#dc2626', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <XCircle size={18} /> Schema Errors
+                                        </h4>
+                                        {importResult.schema_errors.map((e, i) => (
+                                            <div key={i} style={{ fontSize: '13px', color: '#b91c1c', padding: '4px 0' }}>{"\u2022"} {e}</div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {!importResult.schema_errors?.length && (
+                                    <>
+                                        {/* Summary Cards */}
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(4, 1fr)',
+                                            gap: '12px',
+                                            marginBottom: '16px',
+                                        }}>
+                                            {[
+                                                { label: 'Total Rows', value: importResult.total_rows, color: '#3b82f6' },
+                                                { label: 'Valid', value: importResult.total_rows - importResult.failed, color: '#16a34a' },
+                                                { label: 'Invalid', value: importResult.failed, color: '#dc2626' },
+                                                { label: 'New Teachers', value: importResult.rows?.filter(r => r.warnings?.some(w => w.includes('CREATE'))).length || 0, color: '#8b5cf6' },
+                                            ].map(({ label, value, color }) => (
+                                                <div key={label} style={{
+                                                    textAlign: 'center',
+                                                    padding: '12px',
+                                                    borderRadius: '10px',
+                                                    background: `${color}10`,
+                                                    border: `2px solid ${color}30`,
+                                                }}>
+                                                    <div style={{ fontSize: '24px', fontWeight: '800', color }}>{value}</div>
+                                                    <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>{label}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Preview Table */}
+                                        <div style={{ maxHeight: '400px', overflow: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                                <thead style={{ position: 'sticky', top: 0, background: '#1e293b', color: 'white', zIndex: 1 }}>
+                                                    <tr>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Row</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Status</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Teacher</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Class</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Subject</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Type</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Batch</th>
+                                                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Issues</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {importResult.rows?.map((row, idx) => {
+                                                        const isInvalid = row.status === 'invalid';
+                                                        const hasWarnings = row.warnings?.length > 0;
+                                                        return (
+                                                            <tr key={idx} style={{
+                                                                background: isInvalid ? '#fef2f2' : hasWarnings ? '#fffbeb' : idx % 2 ? '#f8fafc' : 'white',
+                                                                borderBottom: '1px solid #e2e8f0',
+                                                            }}>
+                                                                <td style={{ padding: '6px 10px', fontWeight: '600' }}>{row.row}</td>
+                                                                <td style={{ padding: '6px 10px' }}>
+                                                                    {isInvalid
+                                                                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#dc2626', fontWeight: '600' }}><XCircle size={14} /> Invalid</span>
+                                                                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: '600' }}><CheckCircle size={14} /> Valid</span>
+                                                                    }
+                                                                </td>
+                                                                <td style={{ padding: '6px 10px' }}>
+                                                                    <div style={{ fontWeight: '600' }}>{row.data?.['Teacher Code'] || '\u2014'}</div>
+                                                                    <div style={{ fontSize: '11px', color: '#64748b' }}>{row.data?.['Teacher Name'] || ''}</div>
+                                                                </td>
+                                                                <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: '600' }}>{row.data?.['Class Assigned'] || '\u2014'}</td>
+                                                                <td style={{ padding: '6px 10px' }}>{row.data?.['Subject Assigned'] || '\u2014'}</td>
+                                                                <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                                                                    <span style={{
+                                                                        padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600',
+                                                                        background: (row.data?.['Type'] || '').toLowerCase() === 'lab' ? '#dcfce7' : '#dbeafe',
+                                                                        color: (row.data?.['Type'] || '').toLowerCase() === 'lab' ? '#166534' : '#1e40af',
+                                                                    }}>{row.data?.['Type'] || 'Theory'}</span>
+                                                                </td>
+                                                                <td style={{ padding: '6px 10px', textAlign: 'center', fontWeight: '600' }}>{row.data?.['Batch'] || 'All'}</td>
+                                                                <td style={{ padding: '6px 10px', fontSize: '11px' }}>
+                                                                    {row.errors?.map((e, i) => <div key={i} style={{ color: '#dc2626' }}>{"\u2717"} {e}</div>)}
+                                                                    {row.warnings?.map((w, i) => <div key={`w${i}`} style={{ color: '#d97706' }}>{"\u26a0"} {w}</div>)}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="modal-actions" style={{ marginTop: '16px' }}>
+                                            <button className="btn btn-secondary" onClick={() => { setImportStep('upload'); setImportResult(null); }}>Back</button>
+                                            <button className="btn btn-secondary" onClick={() => setShowImportModal(false)}>Cancel</button>
+                                            {(importResult.total_rows - importResult.failed > 0) && (
+                                                <button
+                                                    className="btn btn-primary"
+                                                    disabled={importCommitting}
+                                                    style={{ background: importResult.failed > 0 ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #0f4c81, #1a73e8)', border: 'none' }}
+                                                    onClick={async () => {
+                                                        setImportCommitting(true);
+                                                        setError(null);
+                                                        try {
+                                                            const res = await teacherImportApi.commit(importResult.batch_id);
+                                                            setImportResult(res.data);
+                                                            setImportStep('committed');
+                                                            fetchData();
+                                                        } catch (err) {
+                                                            const detail = err.response?.data?.detail || err.message;
+                                                            setError(typeof detail === 'object' ? JSON.stringify(detail) : detail);
+                                                        } finally {
+                                                            setImportCommitting(false);
+                                                        }
+                                                    }}
+                                                >
+                                                    {importCommitting
+                                                        ? <><Loader2 size={16} className="spin" /> Importing...</>
+                                                        : <><CheckCircle size={16} /> {importResult.failed > 0 ? `Import Valid Only (${importResult.total_rows - importResult.failed})` : `Commit All (${importResult.total_rows} mappings)`}</>
+                                                    }
+                                                </button>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Step 3: Committed */}
+                        {importStep === 'committed' && importResult && (
+                            <div style={{ padding: '20px' }}>
+                                <div style={{
+                                    textAlign: 'center', padding: '30px',
+                                    background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
+                                    borderRadius: '12px', marginBottom: '20px',
+                                }}>
+                                    <CheckCircle size={48} style={{ color: '#2563eb', marginBottom: '12px' }} />
+                                    <h3 style={{ color: '#1e40af', margin: '0 0 8px 0' }}>Mapping Import Successful!</h3>
+                                    <p style={{ color: '#1e3a5f', fontSize: '14px', margin: 0 }}>
+                                        Teacher assignments are now active and ready for timetable generation.
+                                    </p>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+                                    {[
+                                        { label: 'New Teachers', value: importResult.created_teachers, color: '#8b5cf6', icon: '+' },
+                                        { label: 'Mappings Created', value: importResult.created_mappings, color: '#16a34a', icon: '\u2713' },
+                                        { label: 'Duplicates Skipped', value: importResult.skipped_duplicates, color: '#f59e0b', icon: '\u2014' },
+                                    ].map(({ label, value, color, icon }) => (
+                                        <div key={label} style={{
+                                            textAlign: 'center', padding: '14px', borderRadius: '10px',
+                                            background: `${color}10`, border: `2px solid ${color}30`,
+                                        }}>
+                                            <div style={{ fontSize: '28px', fontWeight: '800', color }}>{icon} {value}</div>
+                                            <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>{label}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {importResult.health_check && (
+                                    <div style={{
+                                        background: importResult.health_check.all_clear ? '#f0fdf4' : '#fffbeb',
+                                        border: `1px solid ${importResult.health_check.all_clear ? '#86efac' : '#fde68a'}`,
+                                        borderRadius: '8px', padding: '14px', marginBottom: '16px',
+                                    }}>
+                                        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            {importResult.health_check.all_clear ? <CheckCircle size={16} style={{ color: '#16a34a' }} /> : <AlertCircle size={16} style={{ color: '#f59e0b' }} />}
+                                            Post-Import Health Check
+                                        </h4>
+                                        <div style={{ fontSize: '13px', color: '#475569' }}>
+                                            <div>Total Active Teachers: <strong>{importResult.health_check.total_teachers}</strong></div>
+                                            <div>Total Mappings: <strong>{importResult.health_check.total_mappings}</strong></div>
+                                        </div>
+                                        {importResult.health_check.warnings?.map((w, i) => (
+                                            <div key={i} style={{ fontSize: '12px', color: '#d97706', marginTop: '4px' }}>{"\u26a0"} {w}</div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className="modal-actions">
+                                    <button className="btn btn-primary" onClick={() => setShowImportModal(false)}>Done</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

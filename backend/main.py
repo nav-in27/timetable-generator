@@ -54,6 +54,11 @@ from app.api import (
     structured_composite_baskets,
     allocation,
     feasibility,
+    subject_import,
+    teacher_import,
+    department_import,
+    class_import,
+    room_import,
 )
 
 settings = get_settings()
@@ -158,6 +163,11 @@ app.include_router(room_availability.router, prefix="/api")
 app.include_router(structured_composite_baskets.router, prefix="/api")
 app.include_router(allocation.router, prefix="/api")
 app.include_router(feasibility.router, prefix="/api")
+app.include_router(subject_import.router, prefix="/api")
+app.include_router(teacher_import.router, prefix="/api")
+app.include_router(department_import.router, prefix="/api")
+app.include_router(class_import.router, prefix="/api")
+app.include_router(room_import.router, prefix="/api")
 
 
 @app.get("/")
