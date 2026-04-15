@@ -4,7 +4,7 @@ Provides SQLAlchemy engine and session factory.
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool, StaticPool
+from sqlalchemy.pool import NullPool, StaticPool, QueuePool
 from typing import Generator
 
 from app.core.config import get_settings
@@ -26,16 +26,29 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     )
 
     # File-based SQLite should not use StaticPool in concurrent API usage.
-    # StaticPool is safe for in-memory SQLite tests only.
-    sqlite_pool = StaticPool if is_in_memory_sqlite else NullPool
+    # QueuePool significantly improves concurrent API performance.
+    sqlite_pool = StaticPool if is_in_memory_sqlite else QueuePool
+
+    connect_args = {"check_same_thread": False}
+    pool_kwargs = {}
+    
+    if not is_in_memory_sqlite:
+        # Increase timeout to prevent locking errors and use connection pooling
+        connect_args["timeout"] = 30.0
+        pool_kwargs = {
+            "pool_size": 20,
+            "max_overflow": 30,
+            "pool_timeout": 60.0
+        }
 
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=sqlite_pool
+        connect_args=connect_args,
+        poolclass=sqlite_pool,
+        **pool_kwargs
     )
     
-    # Enable Foreign Key support in SQLite
+    # Enable performance and Foreign Key support in SQLite
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
     
@@ -47,8 +60,10 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA journal_mode=WAL")       # WAL mode for concurrent reads
             cursor.execute("PRAGMA synchronous=NORMAL")     # Faster writes, still safe
-            cursor.execute("PRAGMA cache_size=-8000")       # 8MB cache
+            cursor.execute("PRAGMA cache_size=-64000")      # 64MB cache (was 8MB)
             cursor.execute("PRAGMA temp_store=MEMORY")      # Temp tables in memory
+            cursor.execute("PRAGMA mmap_size=3000000000")   # Mmap for much faster reads
+            cursor.execute("PRAGMA busy_timeout=30000")     # Wait 30s for lock
             cursor.close()
 else:
     engine = create_engine(SQLALCHEMY_DATABASE_URL)
