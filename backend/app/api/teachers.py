@@ -286,8 +286,6 @@ def add_teacher_assignment(
                 )
 
     # Validate component against subject configured hours
-    if assignment_data.component_type == ComponentType.THEORY and (subject.theory_hours_per_week or 0) <= 0:
-        raise HTTPException(status_code=400, detail="This subject has 0 theory hours configured")
     if assignment_data.component_type == ComponentType.LAB and (subject.lab_hours_per_week or 0) <= 0:
         raise HTTPException(status_code=400, detail="This subject has 0 lab hours configured")
     if assignment_data.component_type == ComponentType.TUTORIAL and (subject.tutorial_hours_per_week or 0) <= 0:

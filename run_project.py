@@ -153,6 +153,11 @@ def start_frontend(port: int, api_base_url: str):
     print(f"[START] Starting Frontend Server on http://localhost:{port}")
     print(f"   Using API base URL: {api_base_url}")
     
+    # Write robust .env.local file to ensure Vite catches the API URL
+    env_local_path = os.path.join(FRONTEND_DIR, ".env.local")
+    with open(env_local_path, "w") as f:
+        f.write(f"VITE_API_URL={api_base_url}\n")
+    
     # Use CREATE_NEW_PROCESS_GROUP on Windows for better signal handling
     creation_flags = 0
     if IS_WINDOWS:

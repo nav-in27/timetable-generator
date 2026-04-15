@@ -46,8 +46,14 @@ EXPECTED_COLUMNS = [
     "Subject Assigned",
     "Type",
     "Batch",
-    "Allowed Departments",
+    "Allowed Departments (Yes/No)",
 ]
+
+# Aliases for backward compatibility
+COLUMN_ALIASES = {
+    "Allowed Departments": "Allowed Departments (Yes/No)",
+    "Home Department": "Department"
+}
 
 REQUIRED_COLUMNS = EXPECTED_COLUMNS[:6]  # First 6 are mandatory (Batch can be empty)
 
@@ -119,6 +125,7 @@ class TeacherMappingImportService:
     """High-performance bulk teacher mapping import pipeline."""
 
     CHUNK_SIZE = 200
+    HEADER_SCAN_ROWS = 10
 
     def __init__(self, db: Session):
         self.db = db
@@ -230,31 +237,31 @@ class TeacherMappingImportService:
             result.schema_errors.append(f"Cannot read Excel file: {e}")
             return []
 
-        sheet = None
-        for name in wb.sheetnames:
-            if name.strip().upper() == EXPECTED_SHEET_NAME:
-                sheet = wb[name]
-                break
+        sheet = self._select_best_sheet(wb)
         if sheet is None:
-            sheet = wb.active
-            if sheet is None:
-                result.schema_errors.append("No worksheets found in file")
-                return []
+            result.schema_errors.append("No worksheets found in file")
+            return []
 
-        rows_iter = sheet.iter_rows(values_only=True)
-        try:
-            header_row = next(rows_iter)
-        except StopIteration:
+        preview_rows = list(
+            sheet.iter_rows(min_row=1, max_row=self.HEADER_SCAN_ROWS, values_only=True)
+        )
+        if not preview_rows:
             result.schema_errors.append("Sheet is empty — no header row")
             return []
 
+        header_idx = self._detect_header_row_index(preview_rows)
+        header_row_num = header_idx + 1
+        header_row = preview_rows[header_idx]
         headers = [str(h).strip() if h else "" for h in header_row]
         col_map = self._validate_schema(headers, result)
         if result.schema_errors:
             return []
 
         raw_rows: List[RowResult] = []
-        for idx, values in enumerate(rows_iter, start=2):
+        for idx, values in enumerate(
+            sheet.iter_rows(min_row=header_row_num + 1, values_only=True),
+            start=header_row_num + 1,
+        ):
             if not any(v is not None and str(v).strip() for v in values):
                 continue
             data = {}
@@ -278,19 +285,20 @@ class TeacherMappingImportService:
                 result.schema_errors.append("Cannot decode CSV file")
                 return []
 
-        reader = csv.reader(io.StringIO(text))
-        try:
-            headers = [h.strip() for h in next(reader)]
-        except StopIteration:
+        rows = list(csv.reader(io.StringIO(text)))
+        if not rows:
             result.schema_errors.append("CSV file is empty")
             return []
+
+        header_idx = self._detect_header_row_index(rows[:self.HEADER_SCAN_ROWS])
+        headers = [h.strip() for h in rows[header_idx]]
 
         col_map = self._validate_schema(headers, result)
         if result.schema_errors:
             return []
 
         raw_rows: List[RowResult] = []
-        for idx, values in enumerate(reader, start=2):
+        for idx, values in enumerate(rows[header_idx + 1:], start=header_idx + 2):
             if not any(v.strip() for v in values):
                 continue
             data = {}
@@ -308,28 +316,122 @@ class TeacherMappingImportService:
     # SCHEMA VALIDATION
     # ------------------------------------------------------------------
 
+    def _normalize_header(self, value: str) -> str:
+        """Normalize a header for robust matching across templates."""
+        normalized = (value or "").strip().lower().replace("_", " ")
+        normalized = normalized.replace("/", " ").replace("%", " pct ")
+        return " ".join(normalized.split())
+
+    def _normalize_key_token(self, value: str) -> str:
+        """Normalize row tokens used in duplicate detection keys."""
+        return " ".join((value or "").strip().upper().split())
+
+    def _normalize_batch_value(self, value: str) -> str:
+        """Normalize batch label so ALL/blank/NONE map to whole-class semantics."""
+        normalized = self._normalize_key_token(value)
+        if normalized in ("", "ALL", "NONE", "-", "NA", "N/A"):
+            return ""
+        return normalized
+
+    def _aliases_for_column(self, expected_col: str) -> List[str]:
+        aliases = {self._normalize_header(expected_col)}
+
+        # Include explicit alias map entries for this canonical column.
+        for alias, canonical in COLUMN_ALIASES.items():
+            if canonical == expected_col:
+                aliases.add(self._normalize_header(alias))
+
+        # Extra tolerated variants from old templates.
+        if expected_col == "Allowed Departments (Yes/No)":
+            aliases.update({
+                self._normalize_header("Allowed Departments"),
+                self._normalize_header("Allowed Department"),
+                self._normalize_header("Allow All Departments"),
+                self._normalize_header("Allow All Departments (Yes/No)"),
+                self._normalize_header("Allowed Departments Yes No"),
+            })
+
+        return list(aliases)
+
+    def _find_column_index(self, normalized_headers: List[str], expected_col: str) -> Optional[int]:
+        aliases = self._aliases_for_column(expected_col)
+        aliases_compact = {a.replace(" ", "") for a in aliases}
+
+        for idx, header in enumerate(normalized_headers):
+            header_compact = header.replace(" ", "")
+            if header in aliases or header_compact in aliases_compact:
+                return idx
+
+        return None
+
+    def _score_headers(self, headers: List[str]) -> Tuple[int, int]:
+        """Return (matched_required, matched_expected) for candidate header row."""
+        normalized_headers = [self._normalize_header(h) for h in headers]
+        matched_required = 0
+        matched_expected = 0
+
+        for expected_col in EXPECTED_COLUMNS:
+            if self._find_column_index(normalized_headers, expected_col) is not None:
+                matched_expected += 1
+                if expected_col in REQUIRED_COLUMNS:
+                    matched_required += 1
+
+        return matched_required, matched_expected
+
+    def _detect_header_row_index(self, candidate_rows: List[Any]) -> int:
+        """Pick the best header row index from top candidate rows."""
+        best_idx = 0
+        best_score = (-1, -1)
+
+        for idx, row in enumerate(candidate_rows):
+            headers = [str(h).strip() if h is not None else "" for h in row]
+            score = self._score_headers(headers)
+            if score[0] > best_score[0] or (score[0] == best_score[0] and score[1] > best_score[1]):
+                best_idx = idx
+                best_score = score
+
+        return best_idx
+
+    def _select_best_sheet(self, workbook):
+        """Select TEACHER_MAPPING sheet or best header-matching fallback sheet."""
+        for name in workbook.sheetnames:
+            if name.strip().upper() == EXPECTED_SHEET_NAME:
+                return workbook[name]
+
+        best_sheet = None
+        best_score = (-1, -1)
+
+        for sheet in workbook.worksheets:
+            candidate_rows = list(
+                sheet.iter_rows(min_row=1, max_row=self.HEADER_SCAN_ROWS, values_only=True)
+            )
+            if not candidate_rows:
+                continue
+
+            header_idx = self._detect_header_row_index(candidate_rows)
+            headers = [str(h).strip() if h is not None else "" for h in candidate_rows[header_idx]]
+            score = self._score_headers(headers)
+
+            if score[0] > best_score[0] or (score[0] == best_score[0] and score[1] > best_score[1]):
+                best_sheet = sheet
+                best_score = score
+
+        return best_sheet
+
     def _validate_schema(self, headers: List[str], result: ImportResult) -> Dict[str, int]:
-        normalized = [h.lower().strip() for h in headers]
+        normalized = [self._normalize_header(h) for h in headers]
         col_map: Dict[str, int] = {}
 
         for expected_col in EXPECTED_COLUMNS:
-            norm_expected = expected_col.lower().strip()
-            if norm_expected in normalized:
-                col_map[expected_col] = normalized.index(norm_expected)
+            col_idx = self._find_column_index(normalized, expected_col)
+            if col_idx is None and expected_col in REQUIRED_COLUMNS:
+                result.schema_errors.append(
+                    f"Missing required column: '{expected_col}' (found: {headers})"
+                )
+            elif col_idx is None:
+                col_map[expected_col] = -1
             else:
-                found = False
-                for i, h in enumerate(normalized):
-                    if (norm_expected.replace(" ", "") == h.replace(" ", "")
-                            or norm_expected.replace(" ", "_") == h.replace(" ", "_")):
-                        col_map[expected_col] = i
-                        found = True
-                        break
-                if not found and expected_col in REQUIRED_COLUMNS:
-                    result.schema_errors.append(
-                        f"Missing required column: '{expected_col}' (found: {headers})"
-                    )
-                elif not found:
-                    col_map[expected_col] = -1
+                col_map[expected_col] = col_idx
 
         return col_map
 
@@ -371,14 +473,15 @@ class TeacherMappingImportService:
             semester = self._resolve_class(class_str)
             if semester is None:
                 errors.append(f"Class '{class_str}' not found in database")
-            elif dept_str:
-                # Validate class belongs to department
-                dept_id = self._resolve_dept(dept_str)
-                if dept_id and semester.dept_id and semester.dept_id != dept_id:
-                    errors.append(
-                        f"Class '{class_str}' (dept_id={semester.dept_id}) "
-                        f"does not belong to department '{dept_str}' (id={dept_id})"
-                    )
+            # Removed strict department restriction to allow cross-department teaching
+            # elif dept_str:
+            #     # Validate class belongs to department
+            #     dept_id = self._resolve_dept(dept_str)
+            #     if dept_id and semester.dept_id and semester.dept_id != dept_id:
+            #         errors.append(
+            #             f"Class '{class_str}' (dept_id={semester.dept_id}) "
+            #             f"does not belong to department '{dept_str}' (id={dept_id})"
+            #         )
 
         # 5) Subject Assigned required and must exist
         subject_str = d.get("Subject Assigned", "").strip()
@@ -406,16 +509,36 @@ class TeacherMappingImportService:
             # Validate component type against subject hours
             subject = self._resolve_subject(subject_str) if subject_str else None
             if subject:
+                # Auto-correct theory for lab-/tutorial-only subjects instead of hard failing.
                 if type_str == "theory" and (subject.theory_hours_per_week or 0) <= 0:
-                    errors.append(f"Subject '{subject_str}' has 0 theory hours")
-                elif type_str == "lab" and (subject.lab_hours_per_week or 0) <= 0:
+                    if (subject.lab_hours_per_week or 0) > 0:
+                        type_str = "lab"
+                        d["Type"] = "Lab"
+                        warnings.append(
+                            f"Type auto-corrected to 'Lab' for subject '{subject_str}' (0 theory hours)"
+                        )
+                    elif (subject.tutorial_hours_per_week or 0) > 0:
+                        type_str = "tutorial"
+                        d["Type"] = "Tutorial"
+                        warnings.append(
+                            f"Type auto-corrected to 'Tutorial' for subject '{subject_str}' (0 theory hours)"
+                        )
+                    elif (subject.self_study_hours_per_week or 0) > 0:
+                        type_str = "self_study"
+                        d["Type"] = "Self_Study"
+                        warnings.append(
+                            f"Type auto-corrected to 'Self_Study' for subject '{subject_str}' (0 theory hours)"
+                        )
+
+                # Theory is allowed even when configured hours are zero for lab-only subjects.
+                if type_str == "lab" and (subject.lab_hours_per_week or 0) <= 0:
                     errors.append(f"Subject '{subject_str}' has 0 lab hours")
                 elif type_str == "tutorial" and (subject.tutorial_hours_per_week or 0) <= 0:
                     errors.append(f"Subject '{subject_str}' has 0 tutorial hours")
 
         # 7) Batch validation
-        batch_str = d.get("Batch", "").strip().upper()
-        if batch_str and batch_str not in ("ALL", "", "NONE", "-"):
+        batch_str = self._normalize_batch_value(d.get("Batch", ""))
+        if batch_str:
             # Must resolve batch for the class
             semester = self._resolve_class(class_str) if class_str else None
             if semester:
@@ -425,14 +548,28 @@ class TeacherMappingImportService:
                         f"Batch '{batch_str}' not found for class '{class_str}'. "
                         f"Available: {list(sem_batches.keys()) if sem_batches else 'none'}"
                     )
-        elif type_str == "lab" and (not batch_str or batch_str in ("ALL", "", "NONE", "-")):
+        elif type_str == "lab" and not batch_str:
             # Lab without batch is allowed (whole class lab) but warn
             warnings.append("Lab type without a specific batch — will assign to whole class")
 
         # 8) Duplicate check in current results
         if not errors:
-            # Build a key for this mapping
-            key = (teacher_code.upper(), class_str.upper(), subject_str.upper(), type_str, batch_str)
+            # Build a canonical key to avoid false positives from spacing/case variants.
+            semester = self._resolve_class(class_str) if class_str else None
+            subject = self._resolve_subject(subject_str) if subject_str else None
+
+            batch_key = None
+            if type_str == "lab" and batch_str:
+                resolved_batch = self._resolve_batch(semester.id, batch_str) if semester else None
+                batch_key = resolved_batch.id if resolved_batch else batch_str
+
+            key = (
+                self._normalize_key_token(teacher_code),
+                semester.id if semester else self._normalize_key_token(class_str),
+                subject.id if subject else self._normalize_key_token(subject_str),
+                type_str,
+                batch_key,
+            )
             if not hasattr(self, '_seen_mappings'):
                 self._seen_mappings = set()
             if key in self._seen_mappings:
@@ -504,8 +641,8 @@ class TeacherMappingImportService:
         class_str = d["Class Assigned"].strip()
         subject_str = d["Subject Assigned"].strip()
         type_str = d.get("Type", "Theory").strip().lower()
-        batch_str = d.get("Batch", "").strip().upper()
-        allowed_depts_str = d.get("Allowed Departments", "").strip()
+        batch_str = self._normalize_batch_value(d.get("Batch", ""))
+        allowed_depts_str = d.get("Allowed Departments (Yes/No)", "").strip()
 
         # Resolve dept
         dept_id = self._resolve_dept(dept_str)
@@ -514,8 +651,10 @@ class TeacherMappingImportService:
         allowed_depts = []
         is_common_service = False
         if allowed_depts_str:
-            if allowed_depts_str.upper() in ["ALL", "COMMON", "ANY"]:
+            if allowed_depts_str.upper() in ["ALL", "COMMON", "ANY", "YES", "Y", "TRUE"]:
                 is_common_service = True
+            elif allowed_depts_str.upper() in ["NO", "N", "FALSE", "NONE"]:
+                is_common_service = False
             else:
                 dept_names = [name.strip() for name in allowed_depts_str.replace(";", ",").split(",") if name.strip()]
                 for name in dept_names:
@@ -584,7 +723,7 @@ class TeacherMappingImportService:
 
         # Resolve batch
         batch_id = None
-        if batch_str and batch_str not in ("ALL", "", "NONE", "-"):
+        if batch_str:
             batch = self._resolve_batch(semester.id, batch_str)
             if batch:
                 batch_id = batch.id
@@ -753,16 +892,16 @@ class TeacherMappingImportService:
             cell.alignment = header_align
             cell.border = header_border
 
-        widths = [22, 14, 12, 14, 18, 10, 8]
+        widths = [22, 14, 16, 14, 18, 10, 10, 28]
         for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
         examples = [
-            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Theory", "All"],
-            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Lab", "B1"],
-            ["Dr. Smith", "CSE001", "CSE", "CS3B", "CS201", "Theory", "All"],
-            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Theory", "All"],
-            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Lab", "B2"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Theory", "All", "No"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Lab", "B1", "No"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3B", "CS201", "Theory", "All", "No"],
+            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Theory", "All", "ALL"],
+            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Lab", "B2", "CSE, ECE"],
         ]
 
         example_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")

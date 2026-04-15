@@ -733,7 +733,7 @@ export default function TeachersPage() {
                                         Each row maps one teacher to a class + subject + component type.
                                     </p>
                                     <p style={{ fontSize: '12px', color: '#475569', marginBottom: '16px' }}>
-                                        Columns: <strong>Teacher Name, Teacher Code, Home Department, Allowed Departments, Class Assigned, Subject Assigned, Type, Batch</strong>
+                                        Columns: <strong>Teacher Name, Teacher Code, Department (or Home Department), Class Assigned, Subject Assigned, Type, Batch, Allowed Departments (Yes/No)</strong>
                                     </p>
                                     <input
                                         type="file"

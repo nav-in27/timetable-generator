@@ -463,7 +463,7 @@ class SubjectImportService:
         # 12) Assigned Classes validation
         classes_str = d.get("Assigned Classes", "").strip()
         if classes_str:
-            class_codes = [c.strip() for c in classes_str.split(";") if c.strip()]
+            class_codes = [c.strip() for c in classes_str.replace(",", ";").split(";") if c.strip()]
             # Check for duplicates
             if len(class_codes) != len(set(c.upper() for c in class_codes)):
                 errors.append("Duplicate class codes in Assigned Classes")
@@ -618,7 +618,7 @@ class SubjectImportService:
         if not classes_str:
             return
 
-        class_codes = [c.strip() for c in classes_str.split(";") if c.strip()]
+        class_codes = [c.strip() for c in classes_str.replace(",", ";").split(";") if c.strip()]
         semester_objs = []
         for cc in class_codes:
             for key, sem_obj in self._class_code_cache.items():

@@ -246,7 +246,7 @@ class RoomImportService:
         # Dept resolution if provided
         dept_names_str = d.get("Department", "").strip()
         if dept_names_str:
-            dept_names = [n.strip() for n in dept_names_str.split(",") if n.strip()]
+            dept_names = [n.strip() for n in dept_names_str.replace(";", ",").split(",") if n.strip()]
             for name_idx in dept_names:
                 found = False
                 for k in self._dept_cache:
@@ -275,7 +275,7 @@ class RoomImportService:
         dept_names_str = d.get("Department", "").strip()
         dept_ids = []
         if dept_names_str:
-            dept_names = [n.strip() for n in dept_names_str.split(",") if n.strip()]
+            dept_names = [n.strip() for n in dept_names_str.replace(";", ",").split(",") if n.strip()]
             for n in dept_names:
                 for k, did in self._dept_cache.items():
                     if k.upper() == n.upper():

@@ -15,7 +15,10 @@ print()
 db_patterns = [
     "backend/timetable*.db",
     "backend/*.db",
+    "backend/data_dir/*.db",
+    "database/*.db",
     "timetable*.db",
+    "test_timetable.db",
     "*.db"
 ]
 
