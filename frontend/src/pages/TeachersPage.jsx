@@ -37,6 +37,7 @@ export default function TeachersPage() {
     const [showModal, setShowModal] = useState(false);
     const [editingTeacher, setEditingTeacher] = useState(null);
     const [assignmentComponentType, setAssignmentComponentType] = useState('theory');
+    const [selectedIds, setSelectedIds] = useState([]);
 
     // Import State
     const [showImportModal, setShowImportModal] = useState(false);
@@ -69,29 +70,38 @@ export default function TeachersPage() {
 
     const fetchData = async () => {
         setLoading(true);
-        try {
-            const semParams = {};
-            if (deptId) semParams.deptId = deptId;
+        setError(null);
+        const semParams = {};
+        if (deptId) semParams.deptId = deptId;
 
-            const teacherActive = true;
-            const teacherDept = deptId;
+        // Load each resource INDEPENDENTLY so one failure doesn't block others
+        const results = await Promise.allSettled([
+            teachersApi.getAll(false, deptId),
+            subjectsApi.getAll({ deptId }),
+            semestersApi.getAll(semParams),
+            roomsApi.getAll({ deptId }),
+        ]);
 
-            const [teachersRes, subjectsRes, semestersRes, roomsRes] = await Promise.all([
-                teachersApi.getAll(teacherActive, teacherDept),
-                subjectsApi.getAll({ deptId }),
-                semestersApi.getAll(semParams),
-                roomsApi.getAll({ deptId }),
-            ]);
-            setTeachers(teachersRes.data);
-            setSubjects(subjectsRes.data);
-            setSemesters(semestersRes.data);
-            setRooms(roomsRes.data);
-        } catch (err) {
-            setError('Failed to load data');
-            console.error(err);
-        } finally {
-            setLoading(false);
+        const [teachersRes, subjectsRes, semestersRes, roomsRes] = results;
+
+        if (teachersRes.status === 'fulfilled') {
+            setTeachers(teachersRes.value.data);
+        } else {
+            console.error('Teachers load failed:', teachersRes.reason);
+            setTeachers([]);
+            setError('Failed to load teachers');
         }
+
+        if (subjectsRes.status === 'fulfilled') setSubjects(subjectsRes.value.data);
+        else setSubjects([]);
+
+        if (semestersRes.status === 'fulfilled') setSemesters(semestersRes.value.data);
+        else setSemesters([]);
+
+        if (roomsRes.status === 'fulfilled') setRooms(roomsRes.value.data);
+        else setRooms([]);
+
+        setLoading(false);
     };
 
     const openModal = (teacher = null) => {
@@ -179,6 +189,34 @@ export default function TeachersPage() {
         try {
             await teachersApi.delete(id);
             fetchData();
+            setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+        } catch (err) {
+            const errorMsg = getErrorMessage(err);
+            setError(errorMsg);
+            console.error(err);
+        }
+    };
+
+    const toggleSelection = (id) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    };
+    
+    const handleSelectAll = () => {
+        if (selectedIds.length === filteredTeachers.length && filteredTeachers.length > 0) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(filteredTeachers.map(t => t.id));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedIds.length === 0) return;
+        if (!confirm(`Are you sure you want to remove ${selectedIds.length} selected teacher(s)?`)) return;
+        
+        try {
+            await teachersApi.bulkDelete(selectedIds);
+            setSelectedIds([]);
+            fetchData();
         } catch (err) {
             const errorMsg = getErrorMessage(err);
             setError(errorMsg);
@@ -225,9 +263,6 @@ export default function TeachersPage() {
             subject_id: parseInt(formData.get('subject_id')),
             component_type: formData.get('component_type'),
         };
-
-        const batchId = formData.get('batch_id');
-        if (batchId) data.batch_id = parseInt(batchId);
 
         const roomId = formData.get('room_id');
         if (roomId) data.room_id = parseInt(roomId);
@@ -334,9 +369,25 @@ export default function TeachersPage() {
                     </button>
                 )}
 
-                <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
-                    {filteredTeachers.length} / {teachers.length} teachers
-                </span>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', marginRight: '10px', userSelect: 'none' }}>
+                        <input 
+                            type="checkbox" 
+                            checked={filteredTeachers.length > 0 && selectedIds.length === filteredTeachers.length}
+                            onChange={handleSelectAll}
+                            style={{ width: '16px', height: '16px' }}
+                        />
+                        Select All Filtered
+                    </label>
+                    {selectedIds.length > 0 && (
+                        <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Trash2 size={14} /> Delete Selected ({selectedIds.length})
+                        </button>
+                    )}
+                    <span style={{ fontSize: '0.8rem', color: 'var(--gray-500)', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                        {filteredTeachers.length} / {teachers.length} teachers
+                    </span>
+                </div>
             </div>
 
             {error && (
@@ -350,9 +401,17 @@ export default function TeachersPage() {
                 {filteredTeachers.map((teacher) => (
                     <div key={teacher.id} className={`crud-item ${!teacher.is_active ? 'inactive' : ''}`}>
                         <div className="crud-item-header">
-                            <div>
-                                <h3 className="crud-item-title">{teacher.name}</h3>
-                                {!teacher.is_active && <span className="badge badge-error">Inactive</span>}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                <input 
+                                    type="checkbox"
+                                    checked={selectedIds.includes(teacher.id)}
+                                    onChange={() => toggleSelection(teacher.id)}
+                                    style={{ cursor: 'pointer', width: '18px', height: '18px', marginTop: '4px' }}
+                                />
+                                <div>
+                                    <h3 className="crud-item-title">{teacher.name}</h3>
+                                    {!teacher.is_active && <span className="badge badge-error" style={{ marginTop: '4px', display: 'inline-block' }}>Inactive</span>}
+                                </div>
                             </div>
                             <div className="crud-item-actions">
                                 <button className="btn btn-sm btn-secondary" onClick={() => openModal(teacher)}>
@@ -584,11 +643,6 @@ export default function TeachersPage() {
                                                         <strong style={{ display: 'block' }}>{assignment.semester?.name}</strong>
                                                         <span style={{ fontSize: '0.8rem', color: '#666' }}>
                                                             {assignment.subject?.code} - {assignment.subject?.name} ({assignment.component_type}{assignment.room?.name ? `, ${assignment.room.name}` : ''})
-                                                            {assignment.batch && (
-                                                                <span style={{ marginLeft: '6px', fontSize: '0.7rem', background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)', color: '#5b21b6', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
-                                                                    Batch {assignment.batch.name}
-                                                                </span>
-                                                            )}
                                                             {assignment.parallel_lab_group && (
                                                                 <span style={{ marginLeft: '6px', fontSize: '0.7rem', background: '#ffedd5', color: '#9a3412', padding: '1px 4px', borderRadius: '4px' }}>
                                                                     ∥ {assignment.parallel_lab_group}
@@ -613,8 +667,8 @@ export default function TeachersPage() {
                                         <form onSubmit={handleAddAssignment} className="add-assignment-form" style={{
                                             display: 'grid',
                                             gridTemplateColumns: assignmentComponentType === 'lab'
-                                                ? '1fr 1fr 1fr 1fr 1fr 1fr auto'
-                                                : '1fr 1fr 1fr 1fr auto',
+                                                ? '1fr 1fr 1fr 1fr 1fr auto'
+                                                : '1fr 1fr 1fr auto',
                                             gap: '0.5rem',
                                             alignItems: 'end'
                                         }}>
@@ -628,17 +682,6 @@ export default function TeachersPage() {
                                                 >
                                                     <option value="">Select Class</option>
                                                     {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                                </select>
-                                            </div>
-
-                                            {/* Batch Dropdown */}
-                                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                                <label className="form-label" style={{ fontSize: '0.75rem' }}>Batch (Opt)</label>
-                                                <select name="batch_id" className="form-input" disabled={availableBatches.length === 0}>
-                                                    <option value="">All / None</option>
-                                                    {availableBatches.map(b => (
-                                                        <option key={b.id} value={b.id}>{b.name}</option>
-                                                    ))}
                                                 </select>
                                             </div>
 

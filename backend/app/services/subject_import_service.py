@@ -372,19 +372,33 @@ class SubjectImportService:
         if not code:
             errors.append("Subject Code is required")
 
-        # 3) Department exists
-        dept_name = d.get("Department", "").strip()
-        if not dept_name:
+        # 3) Department exists (supports semicolon-delimited multi-department)
+        dept_str = d.get("Department", "").strip()
+        if not dept_str:
             errors.append("Department is required")
-        elif dept_name.upper() not in self._dept_cache and dept_name not in self._dept_cache:
-            # Try department code or name lookup
-            found = False
-            for key in self._dept_cache:
-                if key.upper() == dept_name.upper():
-                    found = True
-                    break
-            if not found:
-                errors.append(f"Department '{dept_name}' not found in database")
+        else:
+            dept_names = [dn.strip() for dn in dept_str.replace(",", ";").split(";") if dn.strip()]
+            # Remove duplicates while preserving order
+            seen_dept = set()
+            unique_dept_names = []
+            for dn in dept_names:
+                key = dn.upper()
+                if key not in seen_dept:
+                    seen_dept.add(key)
+                    unique_dept_names.append(dn)
+            dept_names = unique_dept_names
+
+            if not dept_names:
+                errors.append("Department is required")
+            else:
+                for dn in dept_names:
+                    found = False
+                    for key in self._dept_cache:
+                        if key.upper() == dn.upper():
+                            found = True
+                            break
+                    if not found:
+                        errors.append(f"Department '{dn}' not found in database")
 
         # 4) Year numeric 1-4
         try:
@@ -467,10 +481,29 @@ class SubjectImportService:
             # Check for duplicates
             if len(class_codes) != len(set(c.upper() for c in class_codes)):
                 errors.append("Duplicate class codes in Assigned Classes")
-            # Check existence
+            # Check existence AND year/semester integrity
             for cc in class_codes:
                 if cc.upper() not in {k.upper() for k in self._class_code_cache}:
                     errors.append(f"Class '{cc}' not found in database")
+                else:
+                    # YEAR/SEMESTER INTEGRITY CHECK
+                    sem_obj = next(
+                        (v for k, v in self._class_code_cache.items()
+                         if k.upper() == cc.upper()), None
+                    )
+                    if sem_obj and year > 0 and semester > 0:
+                        if sem_obj.year != year:
+                            errors.append(
+                                f"Class '{cc}' is Year {sem_obj.year} but subject is "
+                                f"Year {year} — year mismatch. Subject can only be "
+                                f"assigned to classes of the same year."
+                            )
+                        if sem_obj.semester_number != semester:
+                            errors.append(
+                                f"Class '{cc}' is Semester {sem_obj.semester_number} but "
+                                f"subject is Semester {semester} — semester mismatch. "
+                                f"Subject can only be assigned to classes of the same semester."
+                            )
 
         # 13) Duplicate code check within current import + DB
         if code and code in self._subject_code_cache:
@@ -536,13 +569,32 @@ class SubjectImportService:
 
         total_hours = theory + lab + tutorial + seminar + self_study + project + report
 
-        # Resolve department
-        dept_name = d.get("Department", "").strip()
-        dept_id = None
-        for key, did in self._dept_cache.items():
-            if key.upper() == dept_name.upper():
-                dept_id = did
-                break
+        # Resolve departments (supports semicolon-delimited multi-department)
+        dept_str = d.get("Department", "").strip()
+        dept_ids = []
+        dept_objs = []
+        if dept_str:
+            dept_names = [dn.strip() for dn in dept_str.replace(",", ";").split(";") if dn.strip()]
+            # Remove duplicates while preserving order
+            seen = set()
+            for dn in dept_names:
+                if dn.upper() in seen:
+                    continue
+                seen.add(dn.upper())
+                for key, did in self._dept_cache.items():
+                    if key.upper() == dn.upper():
+                        dept_ids.append(did)
+                        break
+
+            # Resolve Department ORM objects for M2M relationship
+            if dept_ids:
+                from app.db.models import Department as DeptModel
+                dept_objs = self.db.query(DeptModel).filter(
+                    DeptModel.id.in_(dept_ids)
+                ).all()
+
+        # Primary dept_id = first department (backward compat)
+        dept_id = dept_ids[0] if dept_ids else None
 
         # Priority score
         priority_score = Subject.calculate_priority_score(importance, pass_pct)
@@ -569,6 +621,10 @@ class SubjectImportService:
             existing.importance_level = importance
             existing.previous_year_pass_percentage = pass_pct
             existing.computed_priority_score = priority_score
+
+            # Update department M2M (replace all)
+            if dept_objs:
+                existing.departments = dept_objs
 
             # Update class assignments
             self._assign_classes(existing, d, dept_id)
@@ -601,6 +657,10 @@ class SubjectImportService:
             self.db.add(subject)
             self.db.flush()  # Get the ID
 
+            # Assign departments M2M
+            if dept_objs:
+                subject.departments = dept_objs
+
             # Assign classes
             self._assign_classes(subject, d, dept_id)
 
@@ -611,7 +671,14 @@ class SubjectImportService:
             row.subject_id = subject.id
 
     def _assign_classes(self, subject, row_data: dict, dept_id: Optional[int]):
-        """Resolve and assign semester (class) records to a subject."""
+        """Resolve and assign semester (class) records to a subject.
+        
+        Supports semicolon-delimited class codes: '3A;3B;3C'
+        Creates proper M2M entries in subject_semesters for ALL classes.
+        
+        INTEGRITY RULE: Only assigns classes that match subject's year AND semester.
+        Classes with mismatched year/semester are silently skipped (already caught in validation).
+        """
         from app.db.models import Semester
 
         classes_str = row_data.get("Assigned Classes", "").strip()
@@ -619,15 +686,45 @@ class SubjectImportService:
             return
 
         class_codes = [c.strip() for c in classes_str.replace(",", ";").split(";") if c.strip()]
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_codes = []
+        for cc in class_codes:
+            if cc.upper() not in seen:
+                seen.add(cc.upper())
+                unique_codes.append(cc)
+        class_codes = unique_codes
+
         semester_objs = []
+        skipped_mismatches = []
         for cc in class_codes:
             for key, sem_obj in self._class_code_cache.items():
                 if key.upper() == cc.upper():
-                    semester_objs.append(sem_obj)
+                    # INTEGRITY CHECK: enforce year/semester match at commit time
+                    if (subject.year and sem_obj.year != subject.year) or \
+                       (subject.semester and sem_obj.semester_number != subject.semester):
+                        skipped_mismatches.append(
+                            f"{cc} (Year {sem_obj.year}/Sem {sem_obj.semester_number})"
+                        )
+                    else:
+                        semester_objs.append(sem_obj)
                     break
 
+        if skipped_mismatches:
+            logger.warning(
+                f"Skipped {len(skipped_mismatches)} class(es) for subject '{subject.code}' "
+                f"(Year {subject.year}/Sem {subject.semester}) due to year/semester mismatch: "
+                f"{skipped_mismatches}"
+            )
+
         if semester_objs:
+            # Replace all class assignments (full sync)
             subject.semesters = semester_objs
+            self.db.flush()  # Ensure M2M rows are persisted
+            logger.info(
+                f"Assigned {len(semester_objs)} class(es) to subject '{subject.code}': "
+                f"{[s.code for s in semester_objs]}"
+            )
             # Auto-assign dept if not set
             if not subject.dept_id and semester_objs:
                 subject.dept_id = semester_objs[0].dept_id
@@ -703,6 +800,32 @@ class SubjectImportService:
                 f"assign baskets before generation"
             )
 
+        # 5) YEAR/SEMESTER INTEGRITY: Detect cross-year/semester subject-class mappings
+        year_sem_mismatches = self.db.execute(
+            subject_semesters.select()
+        ).fetchall()
+        mismatch_count = 0
+        mismatch_details = []
+        for row in year_sem_mismatches:
+            subj = self.db.query(Subject).filter(Subject.id == row.subject_id).first()
+            sem = self.db.query(Semester).filter(Semester.id == row.semester_id).first()
+            if subj and sem:
+                if subj.year != sem.year or subj.semester != sem.semester_number:
+                    mismatch_count += 1
+                    if len(mismatch_details) < 5:  # Limit detail messages
+                        mismatch_details.append(
+                            f"{subj.code} (Year {subj.year}/Sem {subj.semester}) → "
+                            f"{sem.code} (Year {sem.year}/Sem {sem.semester_number})"
+                        )
+        if mismatch_count > 0:
+            detail_str = "; ".join(mismatch_details)
+            if mismatch_count > 5:
+                detail_str += f" ... and {mismatch_count - 5} more"
+            errors.append(
+                f"{mismatch_count} subject-class mapping(s) have year/semester mismatch: "
+                f"{detail_str}. Use the integrity repair tool to fix."
+            )
+
         total_subjects = self.db.query(Subject).count()
         total_semesters = self.db.query(Semester).count()
 
@@ -753,9 +876,9 @@ class SubjectImportService:
 
         # Example data rows
         examples = [
-            ["Data Structures", "CS201", "CSE", 1, 3, 4, 2, 0, 0, 0, 0, 0, "No", "3A;3B", 4, 82, "core"],
+            ["Data Structures", "CS201", "CSE;IT", 1, 3, 4, 2, 0, 0, 0, 0, 0, "No", "3A;3B", 4, 82, "core"],
             ["Digital Logic Design", "CS202", "CSE", 1, 3, 3, 2, 0, 0, 0, 0, 0, "No", "3A;3B", 5, 76, "important"],
-            ["Power BI", "AGI1151", "AIML", 2, 4, 3, 2, 0, 1, 0, 0, 0, "Yes", "4A;4B", 5, 62, "industry"],
+            ["Power BI", "AGI1151", "AIML;AI&DS;IT", 2, 4, 3, 2, 0, 1, 0, 0, 0, "Yes", "4A;4B;4C", 5, 62, "industry"],
         ]
 
         example_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")

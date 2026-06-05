@@ -1,11 +1,18 @@
 """
 Substitution API routes.
 Handles teacher absences and substitution management.
+
+OPTIMIZATIONS (v2):
+- Batch-load related entities instead of N+1 per-substitution queries
+- Eager-load allocations, teachers, subjects in list endpoints
+- Null-safe access throughout
+- Proper error isolation
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import date
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db
 from app.db.models import Teacher, Allocation, Substitution, TeacherAbsence, Subject
@@ -16,7 +23,51 @@ from app.schemas.schemas import (
 from app.services.substitution import SubstitutionService
 
 router = APIRouter(prefix="/substitution", tags=["Substitution"])
+logger = logging.getLogger("app.substitution")
 
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def _build_substitution_response(sub: Substitution, extra: dict = None) -> SubstitutionResponse:
+    """Build a SubstitutionResponse with null-safe relationship access."""
+    # Access eagerly-loaded relationships (no extra queries)
+    original_name = None
+    substitute_name = None
+    subject_name = None
+
+    if extra:
+        original_name = extra.get("original_teacher_name")
+        substitute_name = extra.get("substitute_teacher_name")
+        subject_name = extra.get("subject_name")
+
+    if original_name is None and hasattr(sub, 'original_teacher') and sub.original_teacher:
+        original_name = sub.original_teacher.name
+    if substitute_name is None and hasattr(sub, 'substitute_teacher') and sub.substitute_teacher:
+        substitute_name = sub.substitute_teacher.name
+    if subject_name is None and hasattr(sub, 'allocation') and sub.allocation:
+        if sub.allocation.subject:
+            subject_name = sub.allocation.subject.name
+
+    return SubstitutionResponse(
+        id=sub.id,
+        allocation_id=sub.allocation_id,
+        original_teacher_id=sub.original_teacher_id,
+        substitute_teacher_id=sub.substitute_teacher_id,
+        substitution_date=sub.substitution_date,
+        status=sub.status,
+        substitute_score=sub.substitute_score,
+        reason=sub.reason,
+        original_teacher_name=original_name,
+        substitute_teacher_name=substitute_name,
+        subject_name=subject_name,
+    )
+
+
+# ============================================================================
+# ABSENCE ENDPOINTS
+# ============================================================================
 
 @router.post("/mark-absent", response_model=TeacherAbsenceResponse)
 def mark_teacher_absent(
@@ -64,6 +115,10 @@ def list_absences(
     return query.order_by(TeacherAbsence.absence_date.desc()).all()
 
 
+# ============================================================================
+# AFFECTED ALLOCATIONS
+# ============================================================================
+
 @router.get("/affected-allocations/{teacher_id}/{absence_date}")
 def get_affected_allocations(
     teacher_id: int,
@@ -72,13 +127,21 @@ def get_affected_allocations(
 ):
     """
     Get allocations affected by a teacher's absence on a specific date.
+    OPTIMIZED: uses eager-loaded subject relationship.
     """
     service = SubstitutionService(db)
     allocations = service.get_affected_allocations(teacher_id, absence_date)
     
+    # Batch-load all subject IDs at once instead of per-allocation
+    subject_ids = list({a.subject_id for a in allocations if a.subject_id})
+    subjects_map: Dict[int, Subject] = {}
+    if subject_ids:
+        subjects = db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
+        subjects_map = {s.id: s for s in subjects}
+
     result = []
     for alloc in allocations:
-        subject = db.query(Subject).filter(Subject.id == alloc.subject_id).first()
+        subject = subjects_map.get(alloc.subject_id)
         result.append({
             "allocation_id": alloc.id,
             "day": alloc.day,
@@ -89,6 +152,10 @@ def get_affected_allocations(
     
     return result
 
+
+# ============================================================================
+# CANDIDATES
+# ============================================================================
 
 @router.get("/candidates/{allocation_id}/{substitution_date}", response_model=List[SubstitutionCandidate])
 def get_substitute_candidates(
@@ -116,6 +183,10 @@ def get_substitute_candidates(
     return candidates
 
 
+# ============================================================================
+# ASSIGN SUBSTITUTE
+# ============================================================================
+
 @router.post("/assign", response_model=SubstitutionResponse)
 def assign_substitute(
     request: SubstitutionRequest,
@@ -124,8 +195,9 @@ def assign_substitute(
 ):
     """
     Assign a substitute teacher to an allocation.
-    
     If substitute_teacher_id is not provided, automatically selects the best candidate.
+    
+    OPTIMIZED: single batch query for all related entities.
     """
     service = SubstitutionService(db)
     
@@ -139,12 +211,19 @@ def assign_substitute(
     if not substitution:
         raise HTTPException(status_code=400, detail=message)
     
-    # Get additional info for response
-    allocation = db.query(Allocation).filter(Allocation.id == request.allocation_id).first()
-    original_teacher = db.query(Teacher).filter(Teacher.id == substitution.original_teacher_id).first()
-    substitute_teacher = db.query(Teacher).filter(Teacher.id == substitution.substitute_teacher_id).first()
-    subject = db.query(Subject).filter(Subject.id == allocation.subject_id).first()
-    
+    # Batch-load all needed entities in minimal queries
+    teacher_ids = list({substitution.original_teacher_id, substitution.substitute_teacher_id})
+    teachers_map = {
+        t.id: t for t in db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()
+    }
+
+    allocation = db.query(Allocation).options(
+        joinedload(Allocation.subject)
+    ).filter(Allocation.id == request.allocation_id).first()
+
+    original_teacher = teachers_map.get(substitution.original_teacher_id)
+    substitute_teacher = teachers_map.get(substitution.substitute_teacher_id)
+
     return SubstitutionResponse(
         id=substitution.id,
         allocation_id=substitution.allocation_id,
@@ -156,9 +235,13 @@ def assign_substitute(
         reason=substitution.reason,
         original_teacher_name=original_teacher.name if original_teacher else None,
         substitute_teacher_name=substitute_teacher.name if substitute_teacher else None,
-        subject_name=subject.name if subject else None
+        subject_name=allocation.subject.name if allocation and allocation.subject else None
     )
 
+
+# ============================================================================
+# AUTO-SUBSTITUTE
+# ============================================================================
 
 @router.post("/auto-substitute/{teacher_id}/{absence_date}")
 def auto_substitute(
@@ -183,18 +266,33 @@ def auto_substitute(
     service = SubstitutionService(db)
     results = service.auto_substitute_for_absence(teacher_id, absence_date, reason)
     
+    # Batch-load all substitute teachers and allocations at once
+    sub_teacher_ids = set()
+    allocation_ids = set()
+    for sub, message in results:
+        if sub:
+            sub_teacher_ids.add(sub.substitute_teacher_id)
+            allocation_ids.add(sub.allocation_id)
+
+    teachers_map = {}
+    if sub_teacher_ids:
+        teachers_map = {
+            t.id: t for t in db.query(Teacher).filter(Teacher.id.in_(sub_teacher_ids)).all()
+        }
+
+    allocations_map = {}
+    if allocation_ids:
+        allocs = db.query(Allocation).options(
+            joinedload(Allocation.subject)
+        ).filter(Allocation.id.in_(allocation_ids)).all()
+        allocations_map = {a.id: a for a in allocs}
+
     response = []
     for sub, message in results:
         if sub:
-            substitute_teacher = db.query(Teacher).filter(
-                Teacher.id == sub.substitute_teacher_id
-            ).first()
-            allocation = db.query(Allocation).filter(
-                Allocation.id == sub.allocation_id
-            ).first()
-            subject = db.query(Subject).filter(
-                Subject.id == allocation.subject_id
-            ).first() if allocation else None
+            substitute_teacher = teachers_map.get(sub.substitute_teacher_id)
+            allocation = allocations_map.get(sub.allocation_id)
+            subject = allocation.subject if allocation else None
             
             response.append({
                 "substitution_id": sub.id,
@@ -219,23 +317,54 @@ def auto_substitute(
     }
 
 
+# ============================================================================
+# ACTIVE SUBSTITUTIONS (CRITICAL N+1 FIX)
+# ============================================================================
+
 @router.get("/active", response_model=List[SubstitutionResponse])
 def get_active_substitutions(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     db: Session = Depends(get_db)
 ):
-    """Get all active (pending or assigned) substitutions."""
+    """
+    Get all active (pending or assigned) substitutions.
+    
+    OPTIMIZED: Single query with eager loading replaces N+1 pattern
+    (was: per-substitution queries for allocation, original_teacher, substitute_teacher, subject).
+    """
     service = SubstitutionService(db)
     subs = service.get_active_substitutions(from_date, to_date)
-    
+
+    if not subs:
+        return []
+
+    # Batch-load all needed entities in TWO queries max (teachers + allocations)
+    teacher_ids = set()
+    allocation_ids = set()
+    for sub in subs:
+        teacher_ids.add(sub.original_teacher_id)
+        teacher_ids.add(sub.substitute_teacher_id)
+        allocation_ids.add(sub.allocation_id)
+
+    teachers_map = {
+        t.id: t for t in db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()
+    } if teacher_ids else {}
+
+    allocations_map = {}
+    if allocation_ids:
+        allocs = db.query(Allocation).options(
+            joinedload(Allocation.subject)
+        ).filter(Allocation.id.in_(allocation_ids)).all()
+        allocations_map = {a.id: a for a in allocs}
+
     result = []
     for sub in subs:
-        allocation = db.query(Allocation).filter(Allocation.id == sub.allocation_id).first()
-        original_teacher = db.query(Teacher).filter(Teacher.id == sub.original_teacher_id).first()
-        substitute_teacher = db.query(Teacher).filter(Teacher.id == sub.substitute_teacher_id).first()
-        subject = db.query(Subject).filter(Subject.id == allocation.subject_id).first() if allocation else None
-        
+        allocation = allocations_map.get(sub.allocation_id)
+        original_teacher = teachers_map.get(sub.original_teacher_id)
+        substitute_teacher = teachers_map.get(sub.substitute_teacher_id)
+        subject = allocation.subject if allocation else None
+
         result.append(SubstitutionResponse(
             id=sub.id,
             allocation_id=sub.allocation_id,
@@ -252,6 +381,10 @@ def get_active_substitutions(
     
     return result
 
+
+# ============================================================================
+# CANCEL
+# ============================================================================
 
 @router.delete("/{substitution_id}", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_substitution(

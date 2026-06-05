@@ -1,13 +1,22 @@
 """
 Database session management.
 Provides SQLAlchemy engine and session factory.
+
+OPTIMIZATIONS (v2):
+- Proper exception handling with rollback in get_db()
+- Connection pool tuning for concurrent API access
+- SQLite WAL mode + MMAP for read performance
+- Query timeout safeguards
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool, StaticPool, QueuePool
 from typing import Generator
+import logging
 
 from app.core.config import get_settings
+
+logger = logging.getLogger("app.db")
 
 settings = get_settings()
 
@@ -38,7 +47,9 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         pool_kwargs = {
             "pool_size": 20,
             "max_overflow": 30,
-            "pool_timeout": 60.0
+            "pool_timeout": 60.0,
+            "pool_recycle": 1800,    # Recycle connections every 30 minutes
+            "pool_pre_ping": True,   # Verify connections before use
         }
 
     engine = create_engine(
@@ -64,17 +75,33 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
             cursor.execute("PRAGMA temp_store=MEMORY")      # Temp tables in memory
             cursor.execute("PRAGMA mmap_size=3000000000")   # Mmap for much faster reads
             cursor.execute("PRAGMA busy_timeout=30000")     # Wait 30s for lock
+            cursor.execute("PRAGMA wal_autocheckpoint=1000") # Auto-checkpoint WAL
             cursor.close()
 else:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        pool_size=20,
+        max_overflow=30,
+        pool_timeout=60,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependency for getting database sessions."""
+    """
+    Dependency for getting database sessions.
+    
+    IMPORTANT: Includes proper rollback on exception to prevent
+    connection leaks and stale transaction state.
+    """
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

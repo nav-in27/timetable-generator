@@ -42,25 +42,29 @@ export default function TimetablePage() {
     }, [selectedId, viewType, viewDate]);
 
     const fetchOptions = async () => {
+        setError(null);
+        const semParams = {};
+        if (deptId) semParams.deptId = deptId;
+
+        // Load semesters and teachers INDEPENDENTLY so one failure doesn't block the other
         try {
-            const semParams = {};
-            if (deptId) semParams.deptId = deptId;
-
-            const teacherActive = true;
-            const teacherDept = deptId;
-
-            const [semRes, teachRes] = await Promise.all([
-                semestersApi.getAll(semParams),
-                teachersApi.getAll(teacherActive, teacherDept),
-            ]);
+            const semRes = await semestersApi.getAll(semParams);
             setSemesters(semRes.data);
-            setTeachers(teachRes.data);
-            setSelectedId(null); // Reset selection
-            setTimetable(null);
         } catch (err) {
-            setError('Failed to load options');
-            console.error(err);
+            console.error('Failed to load semesters:', err);
+            setSemesters([]);
         }
+
+        try {
+            const teachRes = await teachersApi.getAll(true, deptId);
+            setTeachers(teachRes.data);
+        } catch (err) {
+            console.error('Failed to load teachers:', err);
+            setTeachers([]);
+        }
+
+        setSelectedId(null);
+        setTimetable(null);
     };
 
     const checkExportStatus = async () => {

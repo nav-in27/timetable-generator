@@ -292,9 +292,20 @@ def build_subject_coverage_report(db: Session, dept_id: Optional[int] = None) ->
             )
 
     # Include fixed teacher mappings if no allocation-based teachers exist yet
-    class_assignments = db.query(ClassSubjectTeacher).all()
+    # OPTIMIZED: filter by dept_id when available instead of loading ALL rows
+    cst_query = db.query(ClassSubjectTeacher)
+    teacher_query = db.query(Teacher)
+    if dept_id:
+        dept_sem_ids = [
+            sid for (sid,) in db.query(Semester.id).filter(Semester.dept_id == dept_id).all()
+        ]
+        if dept_sem_ids:
+            cst_query = cst_query.filter(ClassSubjectTeacher.semester_id.in_(dept_sem_ids))
+        teacher_query = teacher_query.filter(Teacher.dept_id == dept_id)
+
+    class_assignments = cst_query.all()
     assignment_map: Dict[Tuple[int, int], Set[Tuple[str, str]]] = {}
-    teacher_lookup = {t.id: t for t in db.query(Teacher).all()}
+    teacher_lookup = {t.id: t for t in teacher_query.all()}
     for assign in class_assignments:
         key = (assign.subject_id, assign.semester_id)
         if key not in assignment_map:

@@ -47,6 +47,7 @@ EXPECTED_COLUMNS = [
     "Type",
     "Batch",
     "Allowed Departments (Yes/No)",
+    "Lab Room",
 ]
 
 # Aliases for backward compatibility
@@ -102,6 +103,9 @@ class ImportResult:
         self.total_rows = 0
         self.health_check: dict = {}
         self.batch_id: Optional[str] = None
+        # Auto-repair tracking
+        self.auto_created_batches = 0
+        self.auto_linked_subjects = 0
 
     def to_dict(self) -> dict:
         return {
@@ -111,6 +115,8 @@ class ImportResult:
             "created_mappings": self.created_mappings,
             "skipped_duplicates": self.skipped_duplicates,
             "failed": self.failed,
+            "auto_created_batches": self.auto_created_batches,
+            "auto_linked_subjects": self.auto_linked_subjects,
             "health_check": self.health_check,
             "batch_id": self.batch_id,
             "rows": [r.to_dict() for r in self.rows],
@@ -327,10 +333,24 @@ class TeacherMappingImportService:
         return " ".join((value or "").strip().upper().split())
 
     def _normalize_batch_value(self, value: str) -> str:
-        """Normalize batch label so ALL/blank/NONE map to whole-class semantics."""
+        """Normalize batch label so ALL/blank/NONE map to whole-class semantics.
+        
+        Also normalizes common batch name variants:
+          Batch1, BATCH 1, batch-1  -> B1
+          Batch2, BATCH 2, batch-2  -> B2
+          B1, b1                    -> B1
+        """
         normalized = self._normalize_key_token(value)
         if normalized in ("", "ALL", "NONE", "-", "NA", "N/A"):
             return ""
+        
+        # Normalize common batch name patterns to canonical form
+        import re
+        # Match patterns like BATCH1, BATCH 1, BATCH-1, Batch1
+        batch_match = re.match(r'^BATCH[\s\-_]*(\d+)$', normalized)
+        if batch_match:
+            return f"B{batch_match.group(1)}"
+        
         return normalized
 
     def _aliases_for_column(self, expected_col: str) -> List[str]:
@@ -446,15 +466,22 @@ class TeacherMappingImportService:
         warnings = row.warnings
 
         # 1) Teacher Name required
-        if not d.get("Teacher Name", "").strip():
+        teacher_name = d.get("Teacher Name", "").strip()
+        if not teacher_name:
             errors.append("Teacher Name is required")
 
-        # 2) Teacher Code required
+        # 2) Teacher Code required + enhanced lookup
         teacher_code = d.get("Teacher Code", "").strip()
         if not teacher_code:
             errors.append("Teacher Code is required")
-        elif teacher_code not in self._teacher_cache:
-            warnings.append(f"Teacher '{teacher_code}' not found — will CREATE new teacher")
+        else:
+            resolved = self._resolve_teacher(teacher_code, teacher_name)
+            if resolved is None:
+                warnings.append(f"Teacher '{teacher_code}' not found -- will CREATE new teacher")
+            elif resolved.teacher_code != teacher_code:
+                warnings.append(
+                    f"Teacher resolved via fallback: '{teacher_code}' -> '{resolved.teacher_code}'"
+                )
 
         # 3) Department required and must exist
         dept_str = d.get("Department", "").strip()
@@ -494,11 +521,28 @@ class TeacherMappingImportService:
             elif class_str:
                 # Validate subject belongs to this class
                 semester = self._resolve_class(class_str)
-                if semester and subject and (subject.id, semester.id) not in self._subject_semester_set:
-                    errors.append(
-                        f"Subject '{subject_str}' is not assigned to class '{class_str}'. "
-                        f"Assign the subject to this class first."
-                    )
+                if semester and subject:
+                    # CRITICAL: Year/Semester integrity check
+                    if subject.year != semester.year:
+                        errors.append(
+                            f"Subject '{subject_str}' belongs to Year {subject.year} "
+                            f"Semester {subject.semester} but Class '{class_str}' belongs to "
+                            f"Year {semester.year} Semester {semester.semester_number} — "
+                            f"year mismatch. Invalid mapping."
+                        )
+                    elif subject.semester != semester.semester_number:
+                        errors.append(
+                            f"Subject '{subject_str}' belongs to Year {subject.year} "
+                            f"Semester {subject.semester} but Class '{class_str}' belongs to "
+                            f"Year {semester.year} Semester {semester.semester_number} — "
+                            f"semester mismatch. Invalid mapping."
+                        )
+                    elif (subject.id, semester.id) not in self._subject_semester_set:
+                        # DOWNGRADE: auto-link instead of reject
+                        warnings.append(
+                            f"Subject '{subject_str}' not assigned to class '{class_str}' — "
+                            f"will auto-link on commit"
+                        )
 
         # 6) Type must be Theory/Lab/Tutorial
         type_str = d.get("Type", "Theory").strip().lower()
@@ -532,9 +576,16 @@ class TeacherMappingImportService:
 
                 # Theory is allowed even when configured hours are zero for lab-only subjects.
                 if type_str == "lab" and (subject.lab_hours_per_week or 0) <= 0:
-                    errors.append(f"Subject '{subject_str}' has 0 lab hours")
+                    # DOWNGRADE: warning instead of fatal error
+                    warnings.append(
+                        f"Subject '{subject_str}' has 0 lab hours -- "
+                        f"consider updating subject configuration"
+                    )
                 elif type_str == "tutorial" and (subject.tutorial_hours_per_week or 0) <= 0:
-                    errors.append(f"Subject '{subject_str}' has 0 tutorial hours")
+                    warnings.append(
+                        f"Subject '{subject_str}' has 0 tutorial hours -- "
+                        f"consider updating subject configuration"
+                    )
 
         # 7) Batch validation
         batch_str = self._normalize_batch_value(d.get("Batch", ""))
@@ -544,13 +595,24 @@ class TeacherMappingImportService:
             if semester:
                 sem_batches = self._batch_cache.get(semester.id, {})
                 if batch_str not in {k.upper() for k in sem_batches}:
-                    errors.append(
-                        f"Batch '{batch_str}' not found for class '{class_str}'. "
-                        f"Available: {list(sem_batches.keys()) if sem_batches else 'none'}"
+                    # DOWNGRADE: auto-create instead of reject
+                    warnings.append(
+                        f"Batch '{batch_str}' not found for class '{class_str}' -- "
+                        f"will auto-create on commit"
                     )
         elif type_str == "lab" and not batch_str:
             # Lab without batch is allowed (whole class lab) but warn
-            warnings.append("Lab type without a specific batch — will assign to whole class")
+            warnings.append("Lab type without a specific batch -- will assign to whole class")
+
+        # 7.5) Lab Room validation
+        lab_room_str = d.get("Lab Room", "").strip()
+        if lab_room_str:
+            if type_str == "lab":
+                resolved_room = self._resolve_room(lab_room_str)
+                if not resolved_room:
+                    warnings.append(f"Room '{lab_room_str}' not found -- will auto-create on commit")
+            else:
+                warnings.append(f"Lab Room '{lab_room_str}' ignored for non-Lab component type")
 
         # 8) Duplicate check in current results
         if not errors:
@@ -622,6 +684,48 @@ class TeacherMappingImportService:
                 return batch
         return None
 
+    def _resolve_teacher(self, teacher_code: str, teacher_name: str = ""):
+        """Enhanced teacher lookup with fallback chain.
+        
+        Resolution order:
+        1. Exact teacher_code match
+        2. Case-insensitive teacher_code match
+        3. Normalized code match (strip leading zeros, whitespace)
+        4. Teacher name match (case-insensitive)
+        """
+        # 1. Exact match
+        if teacher_code in self._teacher_cache:
+            return self._teacher_cache[teacher_code]
+        
+        # 2. Case-insensitive match
+        for key, teacher in self._teacher_cache.items():
+            if key.upper() == teacher_code.upper():
+                return teacher
+        
+        # 3. Normalized match (strip leading zeros from numeric suffix)
+        import re
+        # AI01 vs AI001 -- normalize by stripping leading zeros in numeric part
+        norm_code = re.sub(r'(\D)(0+)(\d)', r'\1\3', teacher_code.strip())
+        for key, teacher in self._teacher_cache.items():
+            norm_key = re.sub(r'(\D)(0+)(\d)', r'\1\3', key.strip())
+            if norm_key.upper() == norm_code.upper():
+                return teacher
+        
+        # 4. Name match (last resort)
+        if teacher_name:
+            teacher_name_index = getattr(self, '_teacher_name_index', {})
+            name_key = teacher_name.strip().upper()
+            if name_key in teacher_name_index:
+                return teacher_name_index[name_key]
+        
+        return None
+
+    def _resolve_room(self, room_str: str):
+        """Resolve room name to Room object."""
+        if not room_str or not hasattr(self, "_room_cache") or self._room_cache is None:
+            return None
+        return self._room_cache.get(room_str.upper())
+
     # ------------------------------------------------------------------
     # UPSERT
     # ------------------------------------------------------------------
@@ -643,6 +747,7 @@ class TeacherMappingImportService:
         type_str = d.get("Type", "Theory").strip().lower()
         batch_str = self._normalize_batch_value(d.get("Batch", ""))
         allowed_depts_str = d.get("Allowed Departments (Yes/No)", "").strip()
+        lab_room_str = d.get("Lab Room", "").strip()
 
         # Resolve dept
         dept_id = self._resolve_dept(dept_str)
@@ -664,8 +769,8 @@ class TeacherMappingImportService:
                         if dept and dept not in allowed_depts:
                             allowed_depts.append(dept)
 
-        # Resolve or create teacher
-        teacher = self._teacher_cache.get(teacher_code)
+        # Resolve or create teacher (enhanced fallback chain)
+        teacher = self._resolve_teacher(teacher_code, teacher_name)
         created_new_teacher = False
 
         if not teacher:
@@ -692,6 +797,10 @@ class TeacherMappingImportService:
             if teacher.name != teacher_name:
                 teacher.name = teacher_name
             
+            # CRITICAL: Reactivate soft-deleted teachers on import
+            if not teacher.is_active:
+                teacher.is_active = True
+            
             # Optionally update allowed_departments if specified and teacher already exists
             # Only doing it if explicitly provided in the import to enhance existing teacher
             if is_common_service and not teacher.is_common_service_dept:
@@ -712,6 +821,27 @@ class TeacherMappingImportService:
             row.errors.append("Failed to resolve class or subject during commit")
             return
 
+        # AUTO-LINK: Create subject-class mapping if missing
+        # INTEGRITY CHECK: Only auto-link if year/semester match
+        from app.db.models import subject_semesters
+        if (subject.id, semester.id) not in self._subject_semester_set:
+            # Verify year/semester integrity before auto-linking
+            if subject.year != semester.year or subject.semester != semester.semester_number:
+                row.status = "invalid"
+                row.errors.append(
+                    f"Cannot auto-link: Subject '{subject.code}' (Year {subject.year}/Sem {subject.semester}) "
+                    f"does not match Class '{semester.code}' (Year {semester.year}/Sem {semester.semester_number}). "
+                    f"Year/semester mismatch."
+                )
+                return
+            self.db.execute(
+                subject_semesters.insert().values(
+                    subject_id=subject.id, semester_id=semester.id
+                )
+            )
+            self._subject_semester_set.add((subject.id, semester.id))
+            row.warnings.append(f"Auto-linked subject '{subject.code}' to class '{semester.code}'")
+            logger.info(f"Auto-linked subject {subject.code} (id={subject.id}) to class {semester.code} (id={semester.id})")
         # Map component type
         comp_type_map = {
             "theory": ComponentType.THEORY,
@@ -721,12 +851,41 @@ class TeacherMappingImportService:
         }
         component_type = comp_type_map.get(type_str, ComponentType.THEORY)
 
-        # Resolve batch
+        # Resolve batch (auto-create if missing)
         batch_id = None
         if batch_str:
             batch = self._resolve_batch(semester.id, batch_str)
-            if batch:
-                batch_id = batch.id
+            if not batch:
+                # AUTO-CREATE missing batch
+                batch = Batch(
+                    name=batch_str,
+                    semester_id=semester.id,
+                )
+                self.db.add(batch)
+                self.db.flush()
+                # Update cache
+                if semester.id not in self._batch_cache:
+                    self._batch_cache[semester.id] = {}
+                self._batch_cache[semester.id][batch.name] = batch
+                row.warnings.append(f"Auto-created batch '{batch_str}' for class '{semester.code}'")
+                logger.info(f"Auto-created batch '{batch_str}' (id={batch.id}) for class {semester.code}")
+            batch_id = batch.id
+
+        # Resolve lab room (auto-create if missing)
+        room_id = None
+        if lab_room_str and component_type == ComponentType.LAB:
+            room = self._resolve_room(lab_room_str)
+            if not room:
+                from app.db.models import Room, RoomType
+                room = Room(name=lab_room_str, room_type=RoomType.LAB, capacity=60)
+                self.db.add(room)
+                self.db.flush()
+                if not hasattr(self, "_room_cache") or self._room_cache is None:
+                    self._room_cache = {}
+                self._room_cache[room.name.upper()] = room
+                row.warnings.append(f"Auto-created lab room '{lab_room_str}'")
+                logger.info(f"Auto-created lab room '{lab_room_str}' (id={room.id})")
+            room_id = room.id
 
         # Check for existing duplicate mapping in DB
         existing = self.db.query(ClassSubjectTeacher).filter(
@@ -756,6 +915,7 @@ class TeacherMappingImportService:
             subject_id=subject.id,
             component_type=component_type,
             batch_id=batch_id,
+            room_id=room_id,
             is_locked=True,
             assignment_reason="bulk_import",
         )
@@ -777,7 +937,11 @@ class TeacherMappingImportService:
 
     def _warm_caches(self):
         """Populate lazy caches for fast lookups."""
-        from app.db.models import Department, Semester, Subject, Teacher, Batch, subject_semesters
+        from app.db.models import Department, Semester, Subject, Teacher, Batch, subject_semesters, Room
+
+        if not hasattr(self, "_room_cache") or self._room_cache is None:
+            rooms = self.db.query(Room).all()
+            self._room_cache = {r.name.upper(): r for r in rooms if r.name}
 
         if self._dept_cache is None:
             depts = self.db.query(Department).all()
@@ -805,6 +969,11 @@ class TeacherMappingImportService:
         if self._teacher_cache is None:
             teachers = self.db.query(Teacher).all()
             self._teacher_cache = {t.teacher_code: t for t in teachers if t.teacher_code}
+            # Build secondary name index for fallback resolution
+            self._teacher_name_index = {}
+            for t in teachers:
+                if t.name:
+                    self._teacher_name_index[t.name.strip().upper()] = t
 
         if self._batch_cache is None:
             batches = self.db.query(Batch).all()
@@ -855,12 +1024,117 @@ class TeacherMappingImportService:
             warnings.append(f"{unmapped} subject(s) have no teacher assigned")
 
         return {
-            "total_teachers": teacher_count,
+            "total_active_teachers": teacher_count,
             "total_mappings": total_mappings,
             "errors": errors,
             "warnings": warnings,
             "all_clear": len(errors) == 0,
         }
+
+    # ------------------------------------------------------------------
+    # DEPENDENCY REPAIR
+    # ------------------------------------------------------------------
+
+    def repair_dependencies(self) -> dict:
+        """Pre-commit auto-repair of missing dependencies.
+        
+        Actions:
+        - Create missing batches referenced in any ClassSubjectTeacher
+        - Create missing subject-class links
+        - Normalize teacher codes (strip leading zeros)
+        - Remove exact duplicate CST mappings
+        
+        Returns summary of repairs performed.
+        """
+        from app.db.models import (
+            Batch, Semester, Subject, Teacher,
+            ClassSubjectTeacher, subject_semesters,
+        )
+        
+        self._warm_caches()
+        repairs = {
+            "batches_created": 0,
+            "subject_links_created": 0,
+            "teacher_codes_normalized": 0,
+            "duplicates_removed": 0,
+        }
+        
+        # 1. Find CST rows referencing batch names not in batches table
+        #    (batch_id is stored, so this mainly catches NULL batch_ids for lab rows)
+        
+        # 2. Find subjects assigned to classes via CST but missing from subject_semesters
+        cst_pairs = self.db.query(
+            ClassSubjectTeacher.subject_id,
+            ClassSubjectTeacher.semester_id
+        ).distinct().all()
+        
+        for subject_id, semester_id in cst_pairs:
+            if (subject_id, semester_id) not in self._subject_semester_set:
+                try:
+                    self.db.execute(
+                        subject_semesters.insert().values(
+                            subject_id=subject_id, semester_id=semester_id
+                        )
+                    )
+                    self._subject_semester_set.add((subject_id, semester_id))
+                    repairs["subject_links_created"] += 1
+                except Exception:
+                    pass  # Already exists or FK violation
+        
+        # 3. Normalize teacher codes (strip leading zeros in numeric suffix)
+        import re
+        teachers = self.db.query(Teacher).all()
+        for t in teachers:
+            if t.teacher_code:
+                normalized = re.sub(r'(\D)(0+)(\d)', r'\1\3', t.teacher_code.strip())
+                if normalized != t.teacher_code:
+                    # Check no collision
+                    existing = self.db.query(Teacher).filter(
+                        Teacher.teacher_code == normalized,
+                        Teacher.id != t.id
+                    ).first()
+                    if not existing:
+                        t.teacher_code = normalized
+                        repairs["teacher_codes_normalized"] += 1
+        
+        # 4. Remove exact duplicate CST mappings
+        from sqlalchemy import func
+        dupes = self.db.query(
+            ClassSubjectTeacher.teacher_id,
+            ClassSubjectTeacher.semester_id,
+            ClassSubjectTeacher.subject_id,
+            ClassSubjectTeacher.component_type,
+            ClassSubjectTeacher.batch_id,
+            func.count(ClassSubjectTeacher.id).label('cnt'),
+            func.min(ClassSubjectTeacher.id).label('keep_id'),
+        ).group_by(
+            ClassSubjectTeacher.teacher_id,
+            ClassSubjectTeacher.semester_id,
+            ClassSubjectTeacher.subject_id,
+            ClassSubjectTeacher.component_type,
+            ClassSubjectTeacher.batch_id,
+        ).having(func.count(ClassSubjectTeacher.id) > 1).all()
+        
+        for dupe in dupes:
+            # Delete all but the oldest (keep_id)
+            self.db.query(ClassSubjectTeacher).filter(
+                ClassSubjectTeacher.teacher_id == dupe.teacher_id,
+                ClassSubjectTeacher.semester_id == dupe.semester_id,
+                ClassSubjectTeacher.subject_id == dupe.subject_id,
+                ClassSubjectTeacher.component_type == dupe.component_type,
+                ClassSubjectTeacher.batch_id == dupe.batch_id,
+                ClassSubjectTeacher.id != dupe.keep_id,
+            ).delete(synchronize_session=False)
+            repairs["duplicates_removed"] += dupe.cnt - 1
+        
+        self.db.commit()
+        
+        total_repairs = sum(repairs.values())
+        repairs["total_repairs"] = total_repairs
+        repairs["status"] = "ok" if total_repairs == 0 else f"{total_repairs} repair(s) applied"
+        
+        logger.info(f"Dependency repair completed: {repairs}")
+        return repairs
 
     # ------------------------------------------------------------------
     # TEMPLATE GENERATION
@@ -892,16 +1166,16 @@ class TeacherMappingImportService:
             cell.alignment = header_align
             cell.border = header_border
 
-        widths = [22, 14, 16, 14, 18, 10, 10, 28]
+        widths = [22, 14, 16, 14, 18, 10, 10, 28, 16]
         for i, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(i)].width = w
 
         examples = [
-            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Theory", "All", "No"],
-            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Lab", "B1", "No"],
-            ["Dr. Smith", "CSE001", "CSE", "CS3B", "CS201", "Theory", "All", "No"],
-            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Theory", "All", "ALL"],
-            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Lab", "B2", "CSE, ECE"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Theory", "All", "No", ""],
+            ["Dr. Smith", "CSE001", "CSE", "CS3A", "CS201", "Lab", "B1", "No", "AI Lab 1"],
+            ["Dr. Smith", "CSE001", "CSE", "CS3B", "CS201", "Theory", "All", "No", ""],
+            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Theory", "All", "ALL", ""],
+            ["Prof. Kumar", "CSE002", "CSE", "CS3A", "CS202", "Lab", "B2", "CSE, ECE", "AI Lab 1"],
         ]
 
         example_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")

@@ -90,6 +90,12 @@ async def commit_import(
     final = service.commit_import(reparsed)
     _pending_imports.pop(batch_id, None)
 
+    # Invalidate caches to ensure Dashboard and UI show fresh numbers
+    from app.core.cache import cache
+    cache.invalidate_tag("teachers")
+    cache.invalidate_tag("dashboard")
+    cache.invalidate_tag("reports")
+
     return final.to_dict()
 
 
@@ -112,3 +118,27 @@ async def import_health_check(db: Session = Depends(get_db)):
     service = TeacherMappingImportService(db)
     service._warm_caches()
     return service._run_health_check()
+
+
+@router.post("/repair-dependencies")
+async def repair_dependencies(db: Session = Depends(get_db)):
+    """
+    Auto-repair missing dependencies in teacher mapping data.
+    
+    Actions performed:
+    - Create missing subject-class links (subject_semesters entries)
+    - Normalize teacher codes (strip leading zeros)
+    - Remove exact duplicate CST mappings
+    
+    Safe to run multiple times (idempotent).
+    """
+    service = TeacherMappingImportService(db)
+    result = service.repair_dependencies()
+    
+    # Invalidate caches after repairs
+    from app.core.cache import cache
+    cache.invalidate_tag("teachers")
+    cache.invalidate_tag("subjects")
+    cache.invalidate_tag("dashboard")
+    
+    return result

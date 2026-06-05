@@ -140,6 +140,23 @@ class SubstitutionService:
         ).all()
         absent_teacher_ids = {t[0] for t in other_absences}
         
+        # ── STEP 3b: Exclude co-batch teachers (MULTI-FACULTY LAB AWARENESS) ──
+        # When the original allocation has a batch_id, other teachers assigned to
+        # DIFFERENT batches of the same subject in the same slot are already teaching
+        # and cannot substitute. This prevents offering a teacher who is already
+        # running B2 as a substitute for B1's absent teacher.
+        co_batch_teacher_ids: set = set()
+        if getattr(allocation, 'batch_id', None):
+            co_batch_allocs = self.db.query(Allocation.teacher_id).filter(
+                Allocation.semester_id == semester_id,
+                Allocation.subject_id == allocation.subject_id,
+                Allocation.day == day,
+                Allocation.slot == slot,
+                Allocation.batch_id.isnot(None),
+                Allocation.batch_id != allocation.batch_id,  # Other batches
+            ).distinct().all()
+            co_batch_teacher_ids = {t[0] for t in co_batch_allocs}
+        
         # ── STEP 4: Build candidate list ──
         candidates = []
         
@@ -150,6 +167,10 @@ class SubstitutionService:
             
             # Skip absent teachers
             if teacher_id in absent_teacher_ids:
+                continue
+            
+            # Skip co-batch teachers (already teaching another batch in this slot)
+            if teacher_id in co_batch_teacher_ids:
                 continue
             
             # Get teacher info (must be active)

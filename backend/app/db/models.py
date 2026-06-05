@@ -98,6 +98,14 @@ subject_semesters = Table(
     Column("semester_id", Integer, ForeignKey("semesters.id", ondelete="CASCADE"), primary_key=True),
 )
 
+# Many-to-Many: Subjects <-> Departments (cross-department subjects)
+subject_departments = Table(
+    "subject_departments",
+    Base.metadata,
+    Column("subject_id", Integer, ForeignKey("subjects.id", ondelete="CASCADE"), primary_key=True),
+    Column("dept_id", Integer, ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
+)
+
 # Association table for elective baskets and participating semesters
 elective_basket_semesters = Table(
     "elective_basket_semesters",
@@ -363,6 +371,9 @@ class Subject(Base):
     )
     semesters: Mapped[List["Semester"]] = relationship(
         secondary=subject_semesters, back_populates="subjects"
+    )
+    departments: Mapped[List["Department"]] = relationship(
+        secondary=subject_departments, backref="subjects"
     )
     allocations: Mapped[List["Allocation"]] = relationship(back_populates="subject")
     elective_basket: Mapped[Optional["ElectiveBasket"]] = relationship(back_populates="subjects")

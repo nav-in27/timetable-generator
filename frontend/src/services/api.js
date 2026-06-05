@@ -210,6 +210,7 @@ export const teachersApi = {
   create: (data) => api.post('/teachers/', data),
   update: (id, data) => api.put(`/teachers/${id}`, data),
   delete: (id) => api.delete(`/teachers/${id}`),
+  bulkDelete: (teacherIds) => api.post('/teachers/bulk-delete', { teacher_ids: teacherIds }),
   addSubject: (teacherId, subjectId, effectivenessScore = 0.8) =>
     api.post(`/teachers/${teacherId}/subjects/${subjectId}?effectiveness_score=${effectivenessScore}`),
   removeSubject: (teacherId, subjectId) =>
@@ -239,6 +240,14 @@ export const subjectsApi = {
   create: (data) => api.post('/subjects/', data),
   update: (id, data) => api.put(`/subjects/${id}`, data),
   delete: (id) => api.delete(`/subjects/${id}`),
+};
+
+// ============================================================================
+// Integrity Diagnostics & Repair
+// ============================================================================
+export const integrityApi = {
+  getDiagnostics: () => api.get('/subjects/integrity/diagnostics'),
+  repair: () => api.post('/subjects/integrity/repair'),
 };
 
 // ============================================================================

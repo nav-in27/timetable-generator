@@ -1,6 +1,13 @@
 """
 Timetable API routes.
 Handles generation and viewing of timetables.
+
+OPTIMIZATIONS (v2):
+- Pre-load SCB/basket mappings once per request (not per slot)
+- Pre-load substitution teacher names in batch
+- Null-safe access for room, teacher, subject everywhere
+- Single-query timetable fetch with eager loading
+- Graceful fallback on any slot-level error
 """
 from typing import List, Optional, Dict, Any
 from datetime import date
@@ -8,12 +15,17 @@ from io import BytesIO
 import threading
 import uuid
 import time as time_module
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
+from fastapi.responses import StreamingResponse, JSONResponse
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db, SessionLocal
-from app.db.models import Allocation, Semester, Teacher, Subject, Room, Substitution, SubstitutionStatus
+from app.db.models import (
+    Allocation, Semester, Teacher, Subject, Room,
+    Substitution, SubstitutionStatus,
+    StructuredCompositeBasketSubject, SemesterTemplate,
+)
 from app.schemas.schemas import (
     AllocationResponse, TimetableView, TimetableDay, TimetableSlot,
     GenerationRequest, GenerationResult, BatchAllocationData
@@ -21,15 +33,94 @@ from app.schemas.schemas import (
 from app.services.generator import TimetableGenerator
 from app.services.pdf_service import TimetablePDFService
 from app.core.config import get_settings
+from app.core.cache import cache
 
 router = APIRouter(prefix="/timetable", tags=["Timetable"])
 settings = get_settings()
+logger = logging.getLogger("app.timetable")
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
 # In-memory generation task store (for async generation)
 _generation_tasks: Dict[str, Dict[str, Any]] = {}
 
+
+# ============================================================================
+# HELPERS (null-safe accessors)
+# ============================================================================
+
+def _safe_name(obj, fallback: str = "") -> str:
+    """Safely get .name from a relationship that could be None."""
+    return obj.name if obj is not None else fallback
+
+def _safe_code(obj, fallback: str = "") -> str:
+    """Safely get .code from a relationship that could be None."""
+    return obj.code if obj is not None else fallback
+
+def _safe_id(obj) -> Optional[int]:
+    """Safely get .id from a relationship that could be None."""
+    return obj.id if obj is not None else None
+
+def _get_component_str(alloc) -> str:
+    """Get component type string from allocation, never crash."""
+    try:
+        return (
+            getattr(alloc, 'academic_component', None)
+            or (alloc.component_type.value if alloc.component_type else "theory")
+        )
+    except Exception:
+        return "theory"
+
+def _is_lab(alloc) -> bool:
+    """Check if allocation is a lab, null-safe."""
+    return _get_component_str(alloc) == "lab"
+
+
+def _preload_scb_map(db: Session) -> Dict[int, str]:
+    """
+    Pre-load ALL SCB subject->basket_name mappings in ONE query.
+    Returns {subject_id: basket_name}
+    """
+    cache_key = "scb_subject_map"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        scb_links = db.query(StructuredCompositeBasketSubject).options(
+            joinedload(StructuredCompositeBasketSubject.basket)
+        ).all()
+        mapping = {}
+        for link in scb_links:
+            if link.basket:
+                mapping[link.subject_id] = link.basket.name
+        cache.set(cache_key, mapping, ttl=300, tags=["scb", "timetable"])
+        return mapping
+    except Exception:
+        return {}
+
+
+def _get_template_info(db: Session, preferred_type: str) -> tuple:
+    """Get break_slots and lunch_slot from template. Returns (break_slots, lunch_slot)."""
+    import json
+    try:
+        template = db.query(SemesterTemplate).filter(
+            SemesterTemplate.semester_type == preferred_type
+        ).first()
+        if template:
+            try:
+                break_slots = json.loads(template.break_slots)
+            except Exception:
+                break_slots = []
+            return break_slots, template.lunch_slot
+    except Exception:
+        pass
+    return [], 3
+
+
+# ============================================================================
+# GENERATION ENDPOINTS
+# ============================================================================
 
 @router.post("/generate", response_model=GenerationResult)
 def generate_timetable(
@@ -53,6 +144,9 @@ def generate_timetable(
             semester_type=request.semester_type
         )
 
+        # Invalidate all timetable-related caches after generation
+        cache.invalidate_tags(["timetable", "allocations", "reports"])
+
         return GenerationResult(
             success=success,
             message=message,
@@ -62,9 +156,7 @@ def generate_timetable(
             generation_time_seconds=round(gen_time, 3)
         )
     except Exception as e:
-        print(f"[ERROR] Timetable generation failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Timetable generation failed: {e}", exc_info=True)
         return GenerationResult(
             success=False,
             message=f"Generation error: {str(e)}",
@@ -74,6 +166,10 @@ def generate_timetable(
             generation_time_seconds=0.0
         )
 
+
+# ============================================================================
+# ALLOCATION LIST
+# ============================================================================
 
 @router.get("/allocations", response_model=List[AllocationResponse])
 def list_allocations(
@@ -111,9 +207,13 @@ def list_allocations(
 
         return query.order_by(Allocation.day, Allocation.slot).all()
     except Exception as e:
-        print(f"[ERROR] list_allocations failed: {e}")
+        logger.error(f"list_allocations failed: {e}", exc_info=True)
         return []
 
+
+# ============================================================================
+# SEMESTER TIMETABLE VIEW (CRITICAL PATH - OPTIMIZED)
+# ============================================================================
 
 @router.get("/view/semester/{semester_id}", response_model=TimetableView)
 def get_semester_timetable(
@@ -124,151 +224,54 @@ def get_semester_timetable(
     """
     Get complete timetable for a semester/class.
     Includes substitution information if view_date is provided.
+
+    OPTIMIZED: Pre-loads SCB mappings, substitution teachers, and batch data
+    in single queries instead of N+1 per-slot lookups.
     """
     semester = db.query(Semester).filter(Semester.id == semester_id).first()
     if not semester:
         raise HTTPException(status_code=404, detail="Semester not found")
 
-    # Get all allocations for the semester
+    # SINGLE QUERY: Get all allocations with all relationships eagerly loaded
     allocations = db.query(Allocation).options(
         joinedload(Allocation.teacher),
-        joinedload(Allocation.subject),
+        joinedload(Allocation.subject).joinedload(Subject.elective_basket),
         joinedload(Allocation.room),
         joinedload(Allocation.batch)
     ).filter(
         Allocation.semester_id == semester_id
     ).all()
 
-    # Get substitutions for the view date if provided
-    substitutions_map = {}
+    # PRE-LOAD: SCB subject->name map (ONE query, cached)
+    scb_map = _preload_scb_map(db)
+
+    # PRE-LOAD: Substitution data for the view date
+    substitutions_map: Dict[int, Substitution] = {}
+    sub_teacher_names: Dict[int, str] = {}
     if view_date:
-        subs = db.query(Substitution).filter(
+        subs = db.query(Substitution).options(
+            joinedload(Substitution.substitute_teacher)
+        ).filter(
             Substitution.substitution_date == view_date,
             Substitution.status.in_([SubstitutionStatus.ASSIGNED, SubstitutionStatus.PENDING])
         ).all()
-
         for sub in subs:
             substitutions_map[sub.allocation_id] = sub
+            if sub.substitute_teacher:
+                sub_teacher_names[sub.allocation_id] = sub.substitute_teacher.name
 
     # Build timetable view
     days = []
     for day_idx in range(5):
         slots = []
         for slot_idx in range(settings.SLOTS_PER_DAY):
-            # Find ALL allocations for this slot
-            slot_allocs = [a for a in allocations if a.day == day_idx and a.slot == slot_idx]
-
-            if slot_allocs:
-                # Use the first allocation as the "primary" one for general slot info
-                primary_alloc = slot_allocs[0]
-                is_pure_elective_slot = all(getattr(a, 'is_elective', False) for a in slot_allocs)
-
-                is_substituted = primary_alloc.id in substitutions_map
-                sub_teacher_name = None
-
-                if is_substituted:
-                    sub = substitutions_map[primary_alloc.id]
-                    sub_teacher = db.query(Teacher).filter(
-                        Teacher.id == sub.substitute_teacher_id
-                    ).first()
-                    if sub_teacher:
-                        sub_teacher_name = sub_teacher.name
-
-                # Collect batch details if multiple or if batch_id exists
-                batch_allocations = []
-                for alloc in slot_allocs:
-                    if alloc.batch_id or len(slot_allocs) > 1:
-                        # Find the batch name directly or through db, fallback to batch_id or empty
-                        if getattr(alloc, 'batch', None):
-                            batch_name_str = alloc.batch.name
-                        elif getattr(alloc, 'batch_id', None):
-                            batch_name_str = f"B{alloc.batch_id}"
-                        else:
-                            batch_name_str = "Elective" if is_pure_elective_slot else "Batch"
-                        batch_allocations.append(
-                            {
-                                "batch_id": alloc.batch_id,
-                                "batch_name": batch_name_str,
-                                "teacher_name": alloc.teacher.name,
-                                "room_name": alloc.room.name if alloc.room else None,
-                                "subject_name": alloc.subject.name,
-                                "subject_code": alloc.subject.code
-                            }
-                        )
-
-                # Build combined subject name for parallel multi-subject labs
-                unique_subjects = list({a.subject_id: a for a in slot_allocs}.values())
-                if is_pure_elective_slot:
-                    basket_name = None
-                    try:
-                        basket = unique_subjects[0].subject.elective_basket if unique_subjects and unique_subjects[0].subject else None
-                        if basket: basket_name = basket.name
-                    except:
-                        pass
-                    
-                    if not basket_name:
-                        # Try SCB fallback if elective basket not found
-                        try:
-                            from app.db.models import StructuredCompositeBasketSubject
-                            scb_link = db.query(StructuredCompositeBasketSubject).filter_by(subject_id=unique_subjects[0].subject_id).first()
-                            if scb_link and scb_link.basket:
-                                basket_name = scb_link.basket.name
-                        except:
-                            pass
-
-                    if basket_name:
-                        combined_name = basket_name
-                        combined_code = basket_name
-                    else:
-                        # Check if multiple subjects exist, it might be SCB or something else
-                        if len(unique_subjects) > 1:
-                           combined_name = " / ".join(a.subject.name for a in unique_subjects) + " (Basket)"
-                           combined_code = " / ".join(a.subject.code for a in unique_subjects)
-                        else:
-                           combined_name = "Elective"
-                           combined_code = "ELECTIVE"
-                elif len(unique_subjects) > 1:
-                    # Check if this is an SCB scheduled class
-                    scb_name = None
-                    try:
-                        from app.db.models import StructuredCompositeBasketSubject
-                        scb_link = db.query(StructuredCompositeBasketSubject).filter_by(subject_id=unique_subjects[0].subject_id).first()
-                        if scb_link and scb_link.basket:
-                            scb_name = scb_link.basket.name
-                    except:
-                        pass
-                        
-                    if scb_name:
-                        combined_name = scb_name
-                        combined_code = scb_name
-                    elif not any(getattr(a, 'is_elective', False) for a in slot_allocs):
-                        # Parallel Lab format
-                        combined_name = " / ".join(f"{a.subject.code}:{a.batch.name if a.batch else 'B'} (PL)" for a in unique_subjects)
-                        combined_code = " / ".join(f"{a.subject.code} (PL)" for a in unique_subjects)
-                    else:
-                        combined_name = " / ".join(a.subject.name for a in unique_subjects) + " (Batch Split)"
-                        combined_code = " / ".join(a.subject.code for a in unique_subjects)
-                else:
-                    combined_name = primary_alloc.subject.name
-                    combined_code = primary_alloc.subject.code
-
-                slot_data = TimetableSlot(
-                    allocation_id=primary_alloc.id,
-                    teacher_name=primary_alloc.teacher.name,
-                    teacher_id=primary_alloc.teacher.id,
-                    subject_name=combined_name,
-                    subject_code=combined_code,
-                    room_name=primary_alloc.room.name if primary_alloc.room else None,
-                    batch_name=primary_alloc.batch.name if primary_alloc.batch else None,
-                    batch_allocations=batch_allocations,
-                    component_type=getattr(primary_alloc, 'component_type', None).value if hasattr(primary_alloc, 'component_type') and primary_alloc.component_type else "theory",
-                    academic_component=getattr(primary_alloc, 'academic_component', None) or (primary_alloc.component_type.value if primary_alloc.component_type else None),
-                    is_lab=(getattr(primary_alloc, 'academic_component', None) or (primary_alloc.component_type.value if primary_alloc.component_type else "")) == "lab",
-                    is_elective=getattr(primary_alloc, 'is_elective', False),
-                    is_substituted=is_substituted,
-                    substitute_teacher_name=sub_teacher_name
+            try:
+                slot_data = _build_semester_slot(
+                    allocations, day_idx, slot_idx,
+                    substitutions_map, sub_teacher_names, scb_map, db
                 )
-            else:
+            except Exception as e:
+                logger.warning(f"Slot build error day={day_idx} slot={slot_idx}: {e}")
                 slot_data = TimetableSlot()
 
             slots.append(slot_data)
@@ -279,23 +282,9 @@ def get_semester_timetable(
             slots=slots
         ))
 
-    # Determine template type from the semester's actual semester_number
-    # Odd semester numbers (1, 3, 5, 7) -> ODD template
-    # Even semester numbers (2, 4, 6, 8) -> EVEN template
+    # Determine template type from semester
     preferred_type = "ODD" if (semester.semester_number % 2) != 0 else "EVEN"
-    
-    from app.db.models import SemesterTemplate
-    import json
-    template = db.query(SemesterTemplate).filter(SemesterTemplate.semester_type == preferred_type).first()
-    
-    break_slots = []
-    lunch_slot = 3
-    if template:
-        try:
-            break_slots = json.loads(template.break_slots)
-        except:
-            break_slots = []
-        lunch_slot = template.lunch_slot
+    break_slots, lunch_slot = _get_template_info(db, preferred_type)
 
     return TimetableView(
         entity_type="semester",
@@ -306,6 +295,129 @@ def get_semester_timetable(
         lunch_slot=lunch_slot
     )
 
+
+def _build_semester_slot(
+    allocations: list,
+    day_idx: int,
+    slot_idx: int,
+    substitutions_map: dict,
+    sub_teacher_names: dict,
+    scb_map: dict,
+    db: Session,
+) -> TimetableSlot:
+    """Build a single TimetableSlot. Isolated for error safety."""
+    slot_allocs = [a for a in allocations if a.day == day_idx and a.slot == slot_idx]
+
+    if not slot_allocs:
+        return TimetableSlot()
+
+    primary_alloc = slot_allocs[0]
+    is_pure_elective_slot = all(getattr(a, 'is_elective', False) for a in slot_allocs)
+
+    # Substitution check (pre-loaded - no DB hit)
+    is_substituted = primary_alloc.id in substitutions_map
+    sub_teacher_name = sub_teacher_names.get(primary_alloc.id)
+
+    # Batch details
+    batch_allocations = []
+    for alloc in slot_allocs:
+        if alloc.batch_id or len(slot_allocs) > 1:
+            if getattr(alloc, 'batch', None):
+                batch_name_str = alloc.batch.name
+            elif getattr(alloc, 'batch_id', None):
+                batch_name_str = f"B{alloc.batch_id}"
+            else:
+                batch_name_str = "Elective" if is_pure_elective_slot else "Teacher"
+            batch_allocations.append({
+                "batch_id": alloc.batch_id,
+                "batch_name": batch_name_str,
+                "teacher_name": _safe_name(alloc.teacher, "TBD"),
+                "room_name": _safe_name(alloc.room),
+                "subject_name": _safe_name(alloc.subject),
+                "subject_code": _safe_code(alloc.subject),
+            })
+
+    # Build combined subject name
+    unique_subjects = list({a.subject_id: a for a in slot_allocs if a.subject_id}.values())
+
+    combined_name, combined_code = _resolve_slot_names(
+        slot_allocs, unique_subjects, is_pure_elective_slot, scb_map, primary_alloc
+    )
+
+    return TimetableSlot(
+        allocation_id=primary_alloc.id,
+        teacher_name=_safe_name(primary_alloc.teacher, "TBD"),
+        teacher_id=_safe_id(primary_alloc.teacher),
+        subject_name=combined_name,
+        subject_code=combined_code,
+        room_name=_safe_name(primary_alloc.room),
+        batch_name=_safe_name(primary_alloc.batch) if primary_alloc.batch else None,
+        batch_allocations=batch_allocations,
+        component_type=_get_component_str(primary_alloc),
+        academic_component=(
+            getattr(primary_alloc, 'academic_component', None)
+            or (primary_alloc.component_type.value if primary_alloc.component_type else None)
+        ),
+        is_lab=_is_lab(primary_alloc),
+        is_elective=getattr(primary_alloc, 'is_elective', False),
+        is_substituted=is_substituted,
+        substitute_teacher_name=sub_teacher_name,
+    )
+
+
+def _resolve_slot_names(
+    slot_allocs, unique_subjects, is_pure_elective_slot, scb_map, primary_alloc
+) -> tuple:
+    """Determine combined_name and combined_code for a slot. Uses pre-loaded SCB map."""
+
+    if is_pure_elective_slot:
+        # Try elective basket name (already eager-loaded)
+        basket_name = None
+        if unique_subjects and unique_subjects[0].subject:
+            eb = getattr(unique_subjects[0].subject, 'elective_basket', None)
+            if eb:
+                basket_name = eb.name
+
+        # Fallback: try SCB map (pre-loaded, no DB query)
+        if not basket_name and unique_subjects:
+            basket_name = scb_map.get(unique_subjects[0].subject_id)
+
+        if basket_name:
+            return basket_name, basket_name
+        elif len(unique_subjects) > 1:
+            names = " / ".join(_safe_name(a.subject) for a in unique_subjects)
+            codes = " / ".join(_safe_code(a.subject) for a in unique_subjects)
+            return names + " (Basket)", codes
+        else:
+            return "Elective", "ELECTIVE"
+
+    elif len(unique_subjects) > 1:
+        # Check SCB map (pre-loaded, no DB query)
+        scb_name = scb_map.get(unique_subjects[0].subject_id) if unique_subjects else None
+
+        if scb_name:
+            return scb_name, scb_name
+        elif not any(getattr(a, 'is_elective', False) for a in slot_allocs):
+            # Parallel Lab format
+            parts_name = " / ".join(
+                f"{_safe_code(a.subject)}:{_safe_name(a.batch, 'B') if a.batch else 'B'} (PL)"
+                for a in unique_subjects
+            )
+            parts_code = " / ".join(
+                f"{_safe_code(a.subject)} (PL)" for a in unique_subjects
+            )
+            return parts_name, parts_code
+        else:
+            names = " / ".join(_safe_name(a.subject) for a in unique_subjects)
+            codes = " / ".join(_safe_code(a.subject) for a in unique_subjects)
+            return names + " (Batch Split)", codes
+    else:
+        return _safe_name(primary_alloc.subject, "Unknown"), _safe_code(primary_alloc.subject, "???")
+
+
+# ============================================================================
+# TEACHER TIMETABLE VIEW (OPTIMIZED)
+# ============================================================================
 
 @router.get("/view/teacher/{teacher_id}", response_model=TimetableView)
 def get_teacher_timetable(
@@ -323,7 +435,7 @@ def get_teacher_timetable(
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
 
-    # Get all allocations for the teacher
+    # Get all allocations for the teacher with eager loading
     query = db.query(Allocation).options(
         joinedload(Allocation.subject),
         joinedload(Allocation.semester),
@@ -332,7 +444,7 @@ def get_teacher_timetable(
         Allocation.teacher_id == teacher_id
     )
 
-    # Department isolation: only show allocations for semesters in this department
+    # Department isolation
     if dept_id:
         dept_sem_ids = [
             sid for (sid,) in
@@ -350,27 +462,34 @@ def get_teacher_timetable(
     for day_idx in range(5):
         slots = []
         for slot_idx in range(settings.SLOTS_PER_DAY):
-            alloc = next(
-                (a for a in allocations if a.day == day_idx and a.slot == slot_idx),
-                None
-            )
-
-            if alloc:
-                slot_data = TimetableSlot(
-                    allocation_id=alloc.id,
-                    teacher_name=teacher.name,
-                    teacher_id=teacher.id,
-                    subject_name=f"{alloc.subject.name} ({alloc.semester.code})",
-                    subject_code=alloc.subject.code,
-                    room_name=alloc.room.name,
-                    component_type=getattr(alloc, 'component_type', None).value if hasattr(alloc, 'component_type') and alloc.component_type else "theory",
-                    academic_component=getattr(alloc, 'academic_component', None) or (alloc.component_type.value if alloc.component_type else None),
-                    is_lab=(getattr(alloc, 'academic_component', None) or (alloc.component_type.value if alloc.component_type else "")) == "lab",
-                    is_elective=getattr(alloc, 'is_elective', False),
-                    is_substituted=False,
-                    substitute_teacher_name=None
+            try:
+                alloc = next(
+                    (a for a in allocations if a.day == day_idx and a.slot == slot_idx),
+                    None
                 )
-            else:
+
+                if alloc:
+                    slot_data = TimetableSlot(
+                        allocation_id=alloc.id,
+                        teacher_name=teacher.name,
+                        teacher_id=teacher.id,
+                        subject_name=f"{_safe_name(alloc.subject, 'Unknown')} ({_safe_code(alloc.semester, '?')})",
+                        subject_code=_safe_code(alloc.subject, "???"),
+                        room_name=_safe_name(alloc.room),
+                        component_type=_get_component_str(alloc),
+                        academic_component=(
+                            getattr(alloc, 'academic_component', None)
+                            or (alloc.component_type.value if alloc.component_type else None)
+                        ),
+                        is_lab=_is_lab(alloc),
+                        is_elective=getattr(alloc, 'is_elective', False),
+                        is_substituted=False,
+                        substitute_teacher_name=None
+                    )
+                else:
+                    slot_data = TimetableSlot()
+            except Exception as e:
+                logger.warning(f"Teacher slot build error day={day_idx} slot={slot_idx}: {e}")
                 slot_data = TimetableSlot()
 
             slots.append(slot_data)
@@ -381,32 +500,17 @@ def get_teacher_timetable(
             slots=slots
         ))
 
-    # For teacher timetable, determine template from allocations' semesters
-    # Use the most common semester type among the teacher's allocations
-    from app.db.models import SemesterTemplate
-    import json
-    
-    # Determine preferred type from the semesters this teacher teaches
-    odd_count = 0
-    even_count = 0
-    for alloc in allocations:
-        if hasattr(alloc, 'semester') and alloc.semester:
-            if (alloc.semester.semester_number % 2) != 0:
-                odd_count += 1
-            else:
-                even_count += 1
+    # Determine template from allocations' semesters
+    odd_count = sum(
+        1 for a in allocations
+        if hasattr(a, 'semester') and a.semester and (a.semester.semester_number % 2) != 0
+    )
+    even_count = sum(
+        1 for a in allocations
+        if hasattr(a, 'semester') and a.semester and (a.semester.semester_number % 2) == 0
+    )
     preferred_type = "ODD" if odd_count >= even_count else "EVEN"
-    
-    template = db.query(SemesterTemplate).filter(SemesterTemplate.semester_type == preferred_type).first()
-    
-    break_slots = []
-    lunch_slot = 3
-    if template:
-        try:
-            break_slots = json.loads(template.break_slots)
-        except:
-            break_slots = []
-        lunch_slot = template.lunch_slot
+    break_slots, lunch_slot = _get_template_info(db, preferred_type)
 
     return TimetableView(
         entity_type="teacher",
@@ -417,6 +521,10 @@ def get_teacher_timetable(
         lunch_slot=lunch_slot
     )
 
+
+# ============================================================================
+# CLEAR TIMETABLE
+# ============================================================================
 
 @router.delete("/clear", status_code=status.HTTP_204_NO_CONTENT)
 def clear_timetable(
@@ -449,9 +557,12 @@ def clear_timetable(
 
         query.delete(synchronize_session=False)
         db.commit()
+
+        # Invalidate caches
+        cache.invalidate_tags(["timetable", "allocations", "reports"])
     except Exception as e:
         db.rollback()
-        print(f"[ERROR] clear_timetable failed: {e}")
+        logger.error(f"clear_timetable failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to clear timetable: {str(e)}")
 
     return None
@@ -496,7 +607,7 @@ def export_timetable_pdf(
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        print(f"[ERROR] PDF export failed: {e}")
+        logger.error(f"PDF export failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to generate PDF. Please try again."
@@ -535,7 +646,7 @@ def preview_timetable_pdf(
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        print(f"[ERROR] PDF preview failed: {e}")
+        logger.error(f"PDF preview failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to generate PDF. Please try again."
@@ -560,7 +671,7 @@ def get_export_status(
             "message": "Ready for export" if count > 0 else "Please generate a timetable first"
         }
     except Exception as e:
-        print(f"[ERROR] export status check failed: {e}")
+        logger.error(f"export status check failed: {e}")
         return {
             "has_timetable": False,
             "timetable_count": 0,
@@ -587,6 +698,9 @@ def _run_generation_task(task_id: str, request_data: dict):
             semester_type=request_data.get("semester_type", "EVEN")
         )
         
+        # Invalidate caches after generation
+        cache.invalidate_tags(["timetable", "allocations", "reports"])
+
         _generation_tasks[task_id].update({
             "status": "completed",
             "result": {
@@ -668,4 +782,3 @@ def get_generation_status(task_id: str):
         pass
     
     return response
-

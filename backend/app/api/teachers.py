@@ -1,10 +1,21 @@
 """
 CRUD API routes for Teachers.
+
+OPTIMIZATIONS (v2):
+- Cache invalidation on all mutations
+- Graceful fallback: if assignment fetch fails, still return basic teacher info
+- Proper rollback on errors
 """
 from typing import List, Optional
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel
+
+from app.core.cache import cache
+
+logger = logging.getLogger("app.teachers")
 
 from app.db.session import get_db
 from app.db.models import (
@@ -59,15 +70,20 @@ def list_teachers(
 
 @router.get("/{teacher_id}", response_model=TeacherResponse)
 def get_teacher(teacher_id: int, db: Session = Depends(get_db)):
-    """Get a specific teacher by ID."""
-    teacher = db.query(Teacher).options(
-        selectinload(Teacher.subjects).selectinload(Subject.semesters),
-        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.semester),
-        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.room),
-        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.subject).selectinload(Subject.semesters),
-        selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.batch),
-        selectinload(Teacher.allowed_departments),
-    ).filter(Teacher.id == teacher_id).first()
+    """Get a specific teacher by ID with graceful fallback."""
+    try:
+        teacher = db.query(Teacher).options(
+            selectinload(Teacher.subjects).selectinload(Subject.semesters),
+            selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.semester),
+            selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.room),
+            selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.subject).selectinload(Subject.semesters),
+            selectinload(Teacher.class_assignments).selectinload(ClassSubjectTeacher.batch),
+            selectinload(Teacher.allowed_departments),
+        ).filter(Teacher.id == teacher_id).first()
+    except Exception as e:
+        # Fallback: return basic teacher info if eager loading fails
+        logger.warning(f"Teacher eager load failed for ID {teacher_id}, using fallback: {e}")
+        teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
     return teacher
@@ -104,6 +120,7 @@ def create_teacher(teacher_data: TeacherCreate, db: Session = Depends(get_db)):
     db.add(teacher)
     db.commit()
     db.refresh(teacher)
+    cache.invalidate_tag("teachers")
     return teacher
 
 @router.put("/{teacher_id}", response_model=TeacherResponse)
@@ -149,23 +166,45 @@ def update_teacher(teacher_id: int, teacher_data: TeacherUpdate, db: Session = D
     
     db.commit()
     db.refresh(teacher)
+    cache.invalidate_tag("teachers")
     return teacher
 
 @router.delete("/{teacher_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
-    """Delete a teacher (soft delete - marks as inactive)."""
+    """Delete a teacher (hard delete)."""
     teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
     
     try:
-        teacher.is_active = False
+        db.delete(teacher)
         db.commit()
+        cache.invalidate_tag("teachers")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Database error: {str(e)}")
     
     return None
+
+class BulkDeleteRequest(BaseModel):
+    teacher_ids: List[int]
+
+@router.post("/bulk-delete", status_code=status.HTTP_200_OK)
+def bulk_delete_teachers(request: BulkDeleteRequest, db: Session = Depends(get_db)):
+    """Bulk delete teachers (hard delete)."""
+    if not request.teacher_ids:
+        return {"deleted_count": 0}
+        
+    try:
+        teachers = db.query(Teacher).filter(Teacher.id.in_(request.teacher_ids)).all()
+        for t in teachers:
+            db.delete(t)
+        db.commit()
+        cache.invalidate_tag("teachers")
+        return {"deleted_count": len(teachers)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Database error: {str(e)}")
 
 @router.post("/{teacher_id}/subjects/{subject_id}", response_model=TeacherResponse)
 def add_subject_to_teacher(
@@ -196,6 +235,7 @@ def add_subject_to_teacher(
     db.execute(stmt)
     db.commit()
     db.refresh(teacher)
+    cache.invalidate_tag("teachers")
     
     return teacher
 
@@ -221,6 +261,7 @@ def remove_subject_from_teacher(
     teacher.subjects.remove(subject)
     db.commit()
     db.refresh(teacher)
+    cache.invalidate_tag("teachers")
     
     return teacher
 
@@ -384,4 +425,5 @@ def delete_teacher_assignment(assignment_id: int, db: Session = Depends(get_db))
     
     db.delete(assignment)
     db.commit()
+    cache.invalidate_tag("teachers")
     return None

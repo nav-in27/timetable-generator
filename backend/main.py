@@ -3,6 +3,12 @@ AI Dept Timetable Generator - FastAPI Backend
 
 Main application entry point.
 Configures CORS, includes all API routes, and initializes the database.
+
+OPTIMIZATIONS (v2):
+- Startup repair: indexes, orphan cleanup, integrity checks
+- Structured error responses with diagnostics
+- Cache management endpoints
+- Connection stability improvements
 """
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -17,6 +23,11 @@ import sys
 import os
 import logging
 import traceback as tb_module
+import time
+
+# Run static checks before doing anything else
+from app.startup_check import run_startup_validation
+run_startup_validation()
 
 # Configure logging: reduce noise in localhost
 logging.basicConfig(
@@ -89,7 +100,20 @@ async def lifespan(app: FastAPI):
         print("[WARN] Could not import seed_data. Skipping auto-seed.")
     except Exception as e:
         print(f"[WARN] Auto-seeding failed (non-critical): {e}")
-        
+
+    # Startup repair: indexes, orphans, integrity
+    try:
+        from app.db.startup_repair import run_startup_repair
+        from app.db.session import SessionLocal
+        repair_db = SessionLocal()
+        try:
+            run_startup_repair(repair_db)
+            print("[INFO] Startup repair completed")
+        finally:
+            repair_db.close()
+    except Exception as e:
+        print(f"[WARN] Startup repair failed (non-critical): {e}")
+
     yield
     # Cleanup (if needed)
     print("[INFO] Shutting down...")
@@ -132,16 +156,34 @@ from fastapi.responses import JSONResponse
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Catch all unhandled exceptions and return structured JSON error."""
+    """
+    Catch all unhandled exceptions and return structured JSON error.
+    
+    Response format:
+    {
+        "success": false,
+        "message": "Human-readable error description",
+        "data": null,
+        "errors": ["Detailed error info"],
+        "diagnostics": {"path": ..., "type": ..., "method": ...}
+    }
+    """
     error_detail = str(exc)
     tb_str = tb_module.format_exc()
     logging.getLogger('app').error(f"Unhandled error on {request.url.path}: {error_detail}\n{tb_str}")
+    
     return JSONResponse(
         status_code=500,
         content={
-            "detail": f"Internal server error: {error_detail}",
-            "path": str(request.url.path),
-            "type": type(exc).__name__
+            "success": False,
+            "message": f"Internal server error: {error_detail}",
+            "data": None,
+            "errors": [error_detail],
+            "diagnostics": {
+                "path": str(request.url.path),
+                "type": type(exc).__name__,
+                "method": request.method,
+            }
         }
     )
 
@@ -183,8 +225,42 @@ def root():
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+    """Health check endpoint with diagnostics."""
+    from app.core.cache import cache
+    try:
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            from sqlalchemy import text
+            db.execute(text("SELECT 1"))
+            db_status = "healthy"
+        except Exception as e:
+            db_status = f"unhealthy: {e}"
+        finally:
+            db.close()
+    except Exception as e:
+        db_status = f"error: {e}"
+
+    return {
+        "status": "healthy" if db_status == "healthy" else "degraded",
+        "database": db_status,
+        "cache": cache.stats(),
+    }
+
+
+@app.post("/api/cache/clear")
+def clear_cache():
+    """Clear all cached data. Useful after bulk imports or manual DB changes."""
+    from app.core.cache import cache
+    cache.clear()
+    return {"success": True, "message": "Cache cleared"}
+
+
+@app.get("/api/cache/stats")
+def cache_stats():
+    """Get cache statistics."""
+    from app.core.cache import cache
+    return {"success": True, "data": cache.stats()}
 
 
 # --- Static File Serving (for production) ---

@@ -330,6 +330,37 @@ def update_schema():
     except Exception as e:
         print(f"[WARN] append-mode class_subject_teachers index migration skipped due to error: {e}")
 
+    # 14. Create subject_departments junction table (multi-department subjects)
+    try:
+        if not _table_exists(cursor, "subject_departments"):
+            print("Creating subject_departments junction table...")
+            cursor.execute("""
+                CREATE TABLE subject_departments (
+                    subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                    dept_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+                    PRIMARY KEY (subject_id, dept_id)
+                )
+            """)
+            # Migrate existing dept_id values from subjects into the junction table
+            if _table_exists(cursor, "subjects"):
+                cursor.execute("SELECT id, dept_id FROM subjects WHERE dept_id IS NOT NULL")
+                migrated = 0
+                for (subject_id, dept_id) in cursor.fetchall():
+                    try:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO subject_departments (subject_id, dept_id) VALUES (?, ?)",
+                            (subject_id, dept_id)
+                        )
+                        migrated += 1
+                    except Exception:
+                        pass
+                if migrated:
+                    print(f"Migrated {migrated} existing subject-department links.")
+        else:
+            print("subject_departments table already exists.")
+    except Exception as e:
+        print(f"[WARN] subject_departments migration skipped due to error: {e}")
+
     try:
         conn.commit()
     finally:

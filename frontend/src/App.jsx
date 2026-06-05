@@ -27,6 +27,7 @@ import RoomAvailabilityPage from './pages/RoomAvailabilityPage';
 import FacultyAssignmentPage from './pages/FacultyAssignmentPage';
 import FacultyWorkloadPage from './pages/FacultyWorkloadPage';
 import FeasibilityPage from './pages/FeasibilityPage';
+import IntegrityPage from './pages/IntegrityPage';
 
 function App() {
   return (
@@ -58,6 +59,7 @@ function App() {
                 <Route path="/faculty-assignments" element={<FacultyAssignmentPage />} />
                 <Route path="/faculty-workload" element={<FacultyWorkloadPage />} />
                 <Route path="/feasibility" element={<FeasibilityPage />} />
+                <Route path="/integrity" element={<IntegrityPage />} />
               </Routes>
             </main>
           </div>

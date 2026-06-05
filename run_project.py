@@ -85,7 +85,7 @@ def check_requirements():
     if not os.path.exists(node_modules_path):
         print("   [WARN] Frontend dependencies missing. Installing...")
         subprocess.run(
-            ["npm", "install"],
+            "npm install",
             cwd=FRONTEND_DIR,
             shell=True,
             check=True

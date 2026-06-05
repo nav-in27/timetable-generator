@@ -15,6 +15,7 @@ from sqlalchemy import select, delete
 from app.db.session import get_db
 from app.db.models import Room, Department, room_departments
 from app.schemas.schemas import RoomCreate, RoomUpdate, RoomResponse
+from app.core.cache import cache
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
 
@@ -152,6 +153,7 @@ def create_room(room_data: RoomCreate, db: Session = Depends(get_db)):
     
     db.commit()
     db.refresh(room)
+    cache.invalidate_tags(["rooms", "timetable"])
     return _room_to_response(room)
 
 
@@ -189,6 +191,7 @@ def update_room(room_id: int, room_data: RoomUpdate, db: Session = Depends(get_d
     
     db.commit()
     db.refresh(room)
+    cache.invalidate_tags(["rooms", "timetable"])
     return _room_to_response(room)
 
 
@@ -202,6 +205,7 @@ def delete_room(room_id: int, db: Session = Depends(get_db)):
     # Junction entries are auto-deleted via CASCADE
     db.delete(room)
     db.commit()
+    cache.invalidate_tags(["rooms", "timetable"])
     return None
 
 

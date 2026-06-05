@@ -14,7 +14,7 @@ import {
     Trash2,
     Loader,
 } from 'lucide-react';
-import { timetableApi, semestersApi } from '../services/api';
+import { timetableApi, semestersApi, feasibilityApi } from '../services/api';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import { Link } from 'react-router-dom';
 import './GeneratePage.css';
@@ -30,6 +30,8 @@ export default function GeneratePage() {
     const [error, setError] = useState(null);
     const [elapsed, setElapsed] = useState(0);
     const [genStatus, setGenStatus] = useState(null); // 'queued' | 'running' | 'completed' | 'failed'
+    const [feasibilityReport, setFeasibilityReport] = useState(null);
+    const [analyzing, setAnalyzing] = useState(false);
     const pollRef = useRef(null);
 
     useEffect(() => {
@@ -121,6 +123,25 @@ export default function GeneratePage() {
                 setGenStatus('failed');
             }
             setLoading(false);
+        }
+    };
+
+    const handleAnalyzeFeasibility = async () => {
+        setAnalyzing(true);
+        setError(null);
+        setFeasibilityReport(null);
+        
+        try {
+            const params = {};
+            if (deptId) params.department_id = deptId;
+            if (selectedSemesters.length > 0) params.semester_ids = selectedSemesters.join(',');
+            
+            const res = await feasibilityApi.analyze(params);
+            setFeasibilityReport(res.data);
+        } catch (err) {
+            setError('Failed to analyze feasibility');
+        } finally {
+            setAnalyzing(false);
         }
     };
 
@@ -237,6 +258,23 @@ export default function GeneratePage() {
                             )}
                         </button>
                         <button
+                            className="btn btn-secondary btn-lg"
+                            onClick={handleAnalyzeFeasibility}
+                            disabled={loading || analyzing}
+                        >
+                            {analyzing ? (
+                                <>
+                                    <Loader size={20} className="spinning" />
+                                    Analyzing...
+                                </>
+                            ) : (
+                                <>
+                                    <AlertCircle size={20} />
+                                    Analyze Feasibility
+                                </>
+                            )}
+                        </button>
+                        <button
                             className="btn btn-danger"
                             onClick={handleClearAll}
                             disabled={loading}
@@ -275,9 +313,9 @@ export default function GeneratePage() {
                     <div className="result-icon">
                         {result.success ? <CheckCircle size={32} /> : <XCircle size={32} />}
                     </div>
-                    <div className="result-content">
+                    <div className="result-content" style={{ width: '100%' }}>
                         <h3>{result.success ? 'Generation Successful!' : 'Generation Failed'}</h3>
-                        <p>{result.message}</p>
+                        <p style={{ whiteSpace: 'pre-wrap', textAlign: 'left', background: 'rgba(0,0,0,0.03)', padding: '1rem', borderRadius: '4px', margin: '1rem 0' }}>{result.message}</p>
                         <div className="result-stats">
                             <div className="result-stat">
                                 <span className="stat-value">{result.total_allocations}</span>

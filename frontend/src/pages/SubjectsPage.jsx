@@ -502,7 +502,26 @@ export default function SubjectsPage() {
 
                             {subject.semesters && subject.semesters.length > 0 && (
                                 <div className="mt-3 text-xs text-muted border-t pt-2">
-                                    <strong>Assigned to:</strong> {subject.semesters.map(s => s.name.replace('Semester', 'Sem')).join(', ')}
+                                    <strong>Classes:</strong> {subject.semesters.map(s => s.name.replace('Semester', 'Sem')).join(', ')}
+                                </div>
+                            )}
+                            {subject.departments && subject.departments.length > 0 && (
+                                <div className="text-xs text-muted" style={{ marginTop: '4px' }}>
+                                    <strong>Depts:</strong>{' '}
+                                    {subject.departments.map(d => (
+                                        <span key={d.id} style={{
+                                            display: 'inline-block',
+                                            padding: '1px 6px',
+                                            borderRadius: '4px',
+                                            background: '#ede9fe',
+                                            color: '#7c3aed',
+                                            fontWeight: 600,
+                                            fontSize: '10px',
+                                            marginRight: '4px'
+                                        }}>
+                                            {d.code}
+                                        </span>
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -585,7 +604,7 @@ export default function SubjectsPage() {
                                     <select
                                         className="form-select"
                                         value={formData.year}
-                                        onChange={(e) => setFormData({ ...formData, year: parseInt(e.target.value) })}
+                                        onChange={(e) => setFormData({ ...formData, year: parseInt(e.target.value), semester_ids: [] })}
                                     >
                                         {[1, 2, 3, 4].map(y => (
                                             <option key={y} value={y}>Year {y}</option>
@@ -597,7 +616,7 @@ export default function SubjectsPage() {
                                     <select
                                         className="form-select"
                                         value={formData.semester}
-                                        onChange={(e) => setFormData({ ...formData, semester: parseInt(e.target.value) })}
+                                        onChange={(e) => setFormData({ ...formData, semester: parseInt(e.target.value), semester_ids: [] })}
                                     >
                                         {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
                                             <option key={s} value={s}>Semester {s}</option>
@@ -906,6 +925,25 @@ export default function SubjectsPage() {
                             {/* Class Assignment */}
                             <div className="form-group">
                                 <label className="form-label">Assigned Classes (Mandatory) *</label>
+                                {/* Year/Semester filter info */}
+                                {!formData.is_elective && (
+                                    <div style={{
+                                        background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                                        border: '1px solid #93c5fd',
+                                        borderRadius: '8px',
+                                        padding: '8px 12px',
+                                        marginBottom: '8px',
+                                        fontSize: '12px',
+                                        color: '#1e40af',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}>
+                                        <AlertCircle size={14} />
+                                        Showing only Year {formData.year}, Semester {formData.semester} classes.
+                                        Change the year/semester above to see different classes.
+                                    </div>
+                                )}
                                 <div style={{
                                     maxHeight: '200px',
                                     overflowY: 'auto',
@@ -914,46 +952,75 @@ export default function SubjectsPage() {
                                     borderRadius: '6px',
                                     backgroundColor: '#f8fafc'
                                 }}>
-                                    {[...new Set(semesters.map(s => s.semester_number))].sort((a, b) => a - b).map(semNum => (
-                                        <div key={semNum} className="mb-3">
-                                            <div className="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">
-                                                {semNum === 1 ? '1st' : semNum === 2 ? '2nd' : semNum === 3 ? '3rd' : `${semNum}th`} Semester
+                                    {(() => {
+                                        // Filter semesters: for non-elective, show only matching year & semester
+                                        const eligibleSemesters = formData.is_elective
+                                            ? semesters
+                                            : semesters.filter(s =>
+                                                s.year === formData.year &&
+                                                s.semester_number === formData.semester
+                                            );
+                                        
+                                        if (eligibleSemesters.length === 0) {
+                                            return (
+                                                <div style={{
+                                                    padding: '16px',
+                                                    textAlign: 'center',
+                                                    color: '#dc2626',
+                                                    fontSize: '13px'
+                                                }}>
+                                                    <AlertCircle size={20} style={{ marginBottom: '4px' }} />
+                                                    <p style={{ margin: '4px 0' }}>
+                                                        No classes found for Year {formData.year}, Semester {formData.semester}.
+                                                    </p>
+                                                    <p className="text-xs text-muted">
+                                                        Make sure classes exist for this year and semester, or change the subject's year/semester.
+                                                    </p>
+                                                </div>
+                                            );
+                                        }
+                                        
+                                        const groupedBySemNum = [...new Set(eligibleSemesters.map(s => s.semester_number))].sort((a, b) => a - b);
+                                        return groupedBySemNum.map(semNum => (
+                                            <div key={semNum} className="mb-3">
+                                                <div className="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">
+                                                    {semNum === 1 ? '1st' : semNum === 2 ? '2nd' : semNum === 3 ? '3rd' : `${semNum}th`} Semester
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px' }}>
+                                                    {eligibleSemesters.filter(s => s.semester_number === semNum).map((sem) => (
+                                                        <label key={sem.id} style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '8px',
+                                                            fontSize: '13px',
+                                                            cursor: 'pointer',
+                                                            padding: '4px',
+                                                            borderRadius: '4px',
+                                                            backgroundColor: 'white',
+                                                            border: formData.semester_ids.includes(sem.id)
+                                                                ? '2px solid #667eea'
+                                                                : '1px solid #eee'
+                                                        }}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={formData.semester_ids.includes(sem.id)}
+                                                                onChange={(e) => {
+                                                                    const ids = new Set(formData.semester_ids);
+                                                                    if (e.target.checked) ids.add(sem.id);
+                                                                    else ids.delete(sem.id);
+                                                                    setFormData({ ...formData, semester_ids: Array.from(ids) })
+                                                                }}
+                                                            />
+                                                            <span>{sem.name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px' }}>
-                                                {semesters.filter(s => s.semester_number === semNum).map((sem) => (
-                                                    <label key={sem.id} style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        fontSize: '13px',
-                                                        cursor: 'pointer',
-                                                        padding: '4px',
-                                                        borderRadius: '4px',
-                                                        backgroundColor: 'white',
-                                                        border: formData.semester_ids.includes(sem.id)
-                                                            ? '2px solid #667eea'
-                                                            : '1px solid #eee'
-                                                    }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={formData.semester_ids.includes(sem.id)}
-                                                            onChange={(e) => {
-                                                                const ids = new Set(formData.semester_ids);
-                                                                if (e.target.checked) ids.add(sem.id);
-                                                                else ids.delete(sem.id);
-                                                                setFormData({ ...formData, semester_ids: Array.from(ids) })
-                                                            }}
-                                                        />
-                                                        <span>{sem.name}</span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {semesters.length === 0 && <p className="text-sm text-muted">No classes active.</p>}
+                                        ));
+                                    })()}
                                 </div>
                                 <p className="text-xs text-muted mt-1">
-                                    <strong>Academic Rule:</strong> Non-elective subjects must belong to the same semester.
+                                    <strong>Academic Rule:</strong> Subjects can only be assigned to classes of the same year and semester.
                                     {formData.is_elective && <span style={{ color: '#f59e0b' }}> (Elective - can span multiple semesters)</span>}
                                 </p>
                             </div>

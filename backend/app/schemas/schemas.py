@@ -19,10 +19,11 @@ class RoomType(str, Enum):
 
 
 class ComponentType(str, Enum):
-    """Types of subject components."""
+    """Types of subject components. Must match DB model's ComponentType exactly."""
     THEORY = "theory"
     LAB = "lab"
     TUTORIAL = "tutorial"
+    SELF_STUDY = "self_study"
 
 
 class AcademicComponentType(str, Enum):
@@ -231,9 +232,20 @@ class SubjectUpdate(BaseModel):
     elective_basket_id: Optional[int] = None
 
 
+class DepartmentBrief(BaseModel):
+    """Brief department info for subject listings."""
+    id: int
+    name: str
+    code: str
+    
+    class Config:
+        from_attributes = True
+
+
 class SubjectResponse(SubjectBase):
     id: int
     semesters: List["SemesterResponse"] = []
+    departments: List[DepartmentBrief] = []
     elective_basket_id: Optional[int] = None
     importance_level: Optional[str] = "NORMAL"
     previous_year_pass_percentage: Optional[int] = None

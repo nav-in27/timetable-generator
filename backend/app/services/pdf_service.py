@@ -73,7 +73,10 @@ class TimetablePDFService:
         ).order_by(Semester.year, Semester.code).all()
     
     def _get_semester_allocations(self, semester_id: int) -> tuple:
-        """Get all allocations for a semester organized by day and slot."""
+        """Get all allocations for a semester organized by day and slot.
+        
+        Returns grid[day][slot] = [alloc, ...] (list to support multi-faculty labs).
+        """
         allocations = self.db.query(Allocation).options(
             joinedload(Allocation.teacher),
             joinedload(Allocation.subject),
@@ -82,15 +85,16 @@ class TimetablePDFService:
             Allocation.semester_id == semester_id
         ).all()
         
-        # Organize into a grid
+        # Organize into a grid — each slot holds a LIST of allocations
+        # to support multi-faculty parallel labs (multiple teachers per slot)
         grid = {}
         for day in range(5):
             grid[day] = {}
             for slot in range(settings.SLOTS_PER_DAY):
-                grid[day][slot] = None
+                grid[day][slot] = []
         
         for alloc in allocations:
-            grid[alloc.day][alloc.slot] = alloc
+            grid[alloc.day][alloc.slot].append(alloc)
         
         return grid, allocations
     
@@ -227,11 +231,22 @@ class TimetablePDFService:
                             break
                     
                     if slot_idx is not None:
-                        alloc = grid.get(day_idx, {}).get(slot_idx)
-                        if alloc:
-                            mnemonic = self._get_subject_mnemonic(alloc.subject)
-                            suffix = self._get_component_suffix(alloc)
-                            cell_text = f"{mnemonic}{suffix}"
+                        slot_allocs = grid.get(day_idx, {}).get(slot_idx, [])
+                        if slot_allocs:
+                            primary = slot_allocs[0]
+                            mnemonic = self._get_subject_mnemonic(primary.subject)
+                            suffix = self._get_component_suffix(primary)
+                            
+                            # Multi-faculty lab: show batch/teacher details
+                            if len(slot_allocs) > 1 and any(getattr(a, 'batch_id', None) for a in slot_allocs):
+                                batch_parts = []
+                                for a in slot_allocs:
+                                    batch_label = f"B{a.batch_id}" if a.batch_id else "All"
+                                    teacher_short = a.teacher.name.split()[-1] if a.teacher else "?"
+                                    batch_parts.append(f"{batch_label}:{teacher_short}")
+                                cell_text = f"{mnemonic}{suffix}\n{' / '.join(batch_parts)}"
+                            else:
+                                cell_text = f"{mnemonic}{suffix}"
                         else:
                             cell_text = ""
                     else:
@@ -281,8 +296,9 @@ class TimetablePDFService:
         for day_idx in range(5):
             row_idx = day_idx + 2  # +2 for header rows
             for slot_idx, col_idx in slot_to_col.items():
-                alloc = grid.get(day_idx, {}).get(slot_idx)
-                if alloc:
+                slot_allocs = grid.get(day_idx, {}).get(slot_idx, [])
+                if slot_allocs:
+                    alloc = slot_allocs[0]  # Use primary for color
                     if alloc.component_type and alloc.component_type.value == "lab":
                         style_commands.append(
                             ('BACKGROUND', (col_idx, row_idx), (col_idx, row_idx), COLORS["red"])

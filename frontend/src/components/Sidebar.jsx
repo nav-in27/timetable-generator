@@ -52,6 +52,7 @@ const navItems = [
     { path: '/faculty-assignments', label: 'Assignments', icon: ClipboardList },
     { path: '/faculty-workload', label: 'Faculty Workload', icon: BarChart3 },
     { path: '/feasibility', label: 'Feasibility', icon: ShieldCheck },
+    { path: '/integrity', label: 'Integrity Report', icon: ShieldCheck },
     { path: '/generate', label: 'Generate', icon: RefreshCw },
 ];
 

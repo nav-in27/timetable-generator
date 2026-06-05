@@ -19,7 +19,7 @@ import time
 import os
 from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass, field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload, subqueryload, contains_eager
 
 from app.db.models import (
     Teacher, Subject, Semester, Room, Allocation, FixedSlot,
@@ -64,6 +64,7 @@ class ComponentRequirement:
     block_size: int = 1  # 1 (single), 2 (continuous), 7 (day-based seminar preference)
     preferred_room_types: Optional[List[RoomType]] = None
     assigned_teacher_id: Optional[int] = None  # READ from existing mapping (default/primary)
+    teacher_ids: List[int] = field(default_factory=list)  # NEW: For multi-teacher sessions (labs)
     assigned_room_id: Optional[int] = None  # Optional preferred/assigned room (e.g., lab room)
     
     # NEW: PARALLEL BATCH SUPPORT
@@ -173,6 +174,12 @@ class TimetableState:
                     # Parallel/elective entries with different subjects are allowed
                     if force_parallel and existing.subject_id != entry.subject_id:
                         continue
+                    
+                    # NEW: Multi-teacher session support
+                    # Allow multiple allocations for the same class and subject if they have DIFFERENT teachers
+                    if existing.subject_id == entry.subject_id and existing.teacher_id != entry.teacher_id:
+                        continue
+                        
                     # Collision check:
                     # 1. Different batches -> Allowed (parallel batch scheduling)
                     # 2. Same batch or no batch -> Collision
@@ -569,6 +576,19 @@ class TimetableGenerator:
         if not target_semesters:
             return False, "No active semesters found", [], 0.0
 
+        # PRE-FLIGHT: Year/Semester integrity scan
+        integrity_violations = self._validate_year_semester_integrity(target_semesters)
+        if integrity_violations:
+            violation_msg = (
+                f"INTEGRITY VIOLATION: {len(integrity_violations)} invalid subject-class mapping(s) found. "
+                f"Generation blocked. Details: " + "; ".join(integrity_violations[:10])
+            )
+            if len(integrity_violations) > 10:
+                violation_msg += f" ... and {len(integrity_violations) - 10} more."
+            violation_msg += " Use the integrity repair tool (POST /subjects/integrity/repair) to fix."
+            print(f"\n[BLOCKED] {violation_msg}")
+            return False, violation_msg, [], 0.0
+
         # Reset analysis
         self.allocation_failures = []
         
@@ -727,6 +747,13 @@ class TimetableGenerator:
         print("\nPHASE 2: GLOBAL VALIDATION & CONFLICT CHECK...")
         validation_errors = self._validate_global_constraints(all_allocations)
         
+        # Validate that all configured batches actually made it into the timetable
+        batch_errors = self._validate_configured_batches(target_semesters, all_allocations)
+        if batch_errors:
+            validation_errors.extend(batch_errors)
+            for err in batch_errors:
+                self.allocation_failures.append(err)
+        
         if self.allocation_failures:
             print("\n==============================================")
             print("  ALLOCATION ISSUES / FAILURES:")
@@ -742,7 +769,13 @@ class TimetableGenerator:
         if validation_errors:
             success = False
             print(f"   [WARN] Found {len(validation_errors)} global conflicts!")
-            combined_msg = " ; ".join(messages) + f". WARNING: {len(validation_errors)} conflicts."
+            
+            # Format detailed error messages for frontend
+            error_details = "\n\n".join(validation_errors[:5])
+            if len(validation_errors) > 5:
+                error_details += f"\n\n...and {len(validation_errors) - 5} more conflicts."
+                
+            combined_msg = " ; ".join(messages) + f"\n\nGeneration blocked by {len(validation_errors)} conflicts:\n\n{error_details}"
         else:
             print("   [OK] GLOBAL VALIDATION PASSED. No inter-department conflicts.")
             combined_msg = " ; ".join(messages)
@@ -818,10 +851,9 @@ class TimetableGenerator:
         # 3. PRE-FILL FIXED SLOTS
         self._prefill_fixed_slots(state, semesters, rooms)
         
-        # 4. READ LOCAL MAPS (Batch, Parallel, Rooms)
+        # 4. READ LOCAL MAPS (Parallel, Rooms)
         room_assignment_map = self._read_room_assignment_map()
-        batch_assignment_map = self._read_batch_assignment_map()
-        batch_room_map = self._read_batch_room_map()
+        # Batch maps removed in favor of multi-teacher lab sessions
         parallel_lab_groups = self._read_parallel_lab_groups()
         
         # 4b. READ DEFAULT CLASSROOM MAP (section-wise)
@@ -835,7 +867,7 @@ class TimetableGenerator:
         # 8. BUILD REQUIREMENTS
         all_requirements = self._build_requirements_readonly(
             semesters, subjects, teacher_assignment_map, room_assignment_map, semester_by_id,
-            batch_assignment_map, batch_room_map, parallel_lab_groups
+            {}, {}, parallel_lab_groups
         )
             
         elective_theory_reqs = [r for r in all_requirements if r.is_elective and r.component_type == ComponentType.THEORY]
@@ -844,6 +876,9 @@ class TimetableGenerator:
         regular_lab_reqs = [r for r in all_requirements if not r.is_elective and r.component_type == ComponentType.LAB and not r.parallel_lab_group]
         parallel_lab_reqs = [r for r in all_requirements if not r.is_elective and r.component_type == ComponentType.LAB and r.parallel_lab_group]
         theory_tutorial_reqs = [r for r in all_requirements if not r.is_elective and r.component_type in [ComponentType.THEORY, ComponentType.TUTORIAL]]
+        
+        # 8b. VALIDATE MULTI-FACULTY LABS (pre-generation health check)
+        self._validate_multi_faculty_labs(all_requirements)
         
         # Detect Global Elective Slots from DB (Legacy/Existing).
         # When regenerating with clear_existing=True, old allocation slots should
@@ -1318,6 +1353,13 @@ class TimetableGenerator:
 
     def _validate_global_constraints(self, allocations: List[AllocationEntry]) -> List[str]:
         """Check for hard conflicts across all generated allocations."""
+        from app.db.models import Teacher, Semester, Room
+        
+        # Cache names to avoid N+1 queries during validation
+        teacher_names = {t.id: t.name for t in self.db.query(Teacher).all()}
+        semester_names = {s.id: s.name for s in self.db.query(Semester).all()}
+        room_names = {r.id: r.name for r in self.db.query(Room).all()}
+        
         errors = []
         # (teacher_id, day, slot) -> list of (sem_id, is_elective, basket_id)
         teacher_map: Dict[Tuple, List[Tuple]] = {}
@@ -1337,13 +1379,22 @@ class TimetableGenerator:
                         # A teacher can't physically be in two classrooms at once
                         if a.is_elective and prev_elective and a.elective_basket_id == prev_basket:
                             errors.append(
-                                f"Teacher Elective Clash: Teacher {a.teacher_id} assigned to "
-                                f"Semester {prev_sem} AND Semester {a.semester_id} at Day {a.day} "
-                                f"Slot {a.slot} (Basket {a.elective_basket_id})"
+                                f"Teacher Elective Clash: Teacher {teacher_names.get(a.teacher_id, a.teacher_id)} assigned to "
+                                f"Class {semester_names.get(prev_sem, prev_sem)} AND Class {semester_names.get(a.semester_id, a.semester_id)} "
+                                f"at Day {a.day} Slot {a.slot} (Basket {a.elective_basket_id})"
                             )
                             has_conflict = True
                         else:
-                            errors.append(f"Teacher Clash: ID {a.teacher_id} at {a.day}:{a.slot} (Sem {prev_sem} vs {a.semester_id})")
+                            t_name = teacher_names.get(a.teacher_id, a.teacher_id)
+                            c1_name = semester_names.get(prev_sem, prev_sem)
+                            c2_name = semester_names.get(a.semester_id, a.semester_id)
+                            
+                            errors.append(
+                                f"Teacher: {t_name}\n"
+                                f"Conflict: Class {c1_name}, Class {c2_name}\n"
+                                f"Both require Day {a.day} Slot {a.slot}.\n"
+                                f"Suggested fix: Increase teacher hours, Assign alternate teacher, Relax availability"
+                            )
                             has_conflict = True
                     teacher_map[t_key].append((a.semester_id, a.is_elective, a.elective_basket_id))
                 else:
@@ -1354,14 +1405,33 @@ class TimetableGenerator:
                 r_key = (a.room_id, a.day, a.slot)
                 if r_key in room_map:
                     prev_sem, prev_elective, prev_basket = room_map[r_key]
+                    
+                    # Same semester is OK (e.g. parallel batch labs sharing the same physical lab room)
+                    if prev_sem == a.semester_id:
+                        pass
                     # Skip if both are electives in same basket (different rooms should be used, but flag it only if truly clashing)
-                    if a.is_elective and prev_elective and a.elective_basket_id == prev_basket:
+                    elif a.is_elective and prev_elective and a.elective_basket_id == prev_basket:
                         pass
                     else:
-                        errors.append(f"Room Clash: ID {a.room_id} at {a.day}:{a.slot}")
+                        r_name = room_names.get(a.room_id, a.room_id)
+                        c1_name = semester_names.get(prev_sem, prev_sem)
+                        c2_name = semester_names.get(a.semester_id, a.semester_id)
+                        
+                        errors.append(
+                            f"Room: {r_name}\n"
+                            f"Conflict: Class {c1_name}, Class {c2_name}\n"
+                            f"Both require Day {a.day} Slot {a.slot}.\n"
+                            f"Suggested fix: Alternate free lab room, Increase room capacity"
+                        )
                 room_map[r_key] = (a.semester_id, a.is_elective, a.elective_basket_id)
             
         return errors
+    
+    def _validate_configured_batches(self, target_semesters: List[Semester], allocations: List[AllocationEntry]) -> List[str]:
+        """
+        No longer required. Batch functionality removed in favor of multi-teacher lab sessions.
+        """
+        return []
     
     # ============================================================
     # READ-ONLY DATA ACCESS (NO MODIFICATIONS)
@@ -1396,6 +1466,125 @@ class TimetableGenerator:
     def _read_rooms(self) -> List[Room]:
         """READ rooms from DB (no modification)."""
         return self.db.query(Room).filter(Room.is_available == True).all()
+
+    def _validate_year_semester_integrity(
+        self, target_semesters: List[Semester]
+    ) -> List[str]:
+        """
+        Pre-generation integrity scan with automatic stale mapping cleanup.
+        
+        TWO-PHASE approach:
+        Phase 1: CLEAN — Remove stale ClassSubjectTeacher records where the
+                  subject is no longer assigned to that class (via subject_semesters).
+                  These are historical leftovers from old assignments.
+        Phase 2: VALIDATE — Only check ACTIVE mappings (subject_semesters) for
+                  year/semester mismatches. If active mappings have issues,
+                  those are real violations that must be fixed.
+        
+        Returns list of violation descriptions. Empty list = all clear.
+        Cross-department teaching is ALLOWED; only year/semester mismatch is flagged.
+        """
+        from app.db.models import subject_semesters
+        
+        violations: List[str] = []
+        target_sem_ids = {s.id for s in target_semesters}
+        
+        # Build quick lookups
+        semester_by_id = {s.id: s for s in target_semesters}
+        subject_cache: Dict[int, Subject] = {}
+        
+        # ================================================================
+        # PHASE 1: AUTO-CLEAN STALE MAPPINGS
+        # ================================================================
+        # Build the authoritative set of active (subject_id, semester_id) pairs
+        ss_rows = self.db.execute(
+            subject_semesters.select().where(
+                subject_semesters.c.semester_id.in_(target_sem_ids)
+            )
+        ).fetchall()
+        active_subject_class_pairs = {
+            (r.subject_id, r.semester_id) for r in ss_rows
+        }
+        
+        # Load subjects for reporting
+        all_subject_ids = {r.subject_id for r in ss_rows}
+        
+        # Find ALL ClassSubjectTeacher records for target semesters
+        cst_rows = self.db.query(ClassSubjectTeacher).filter(
+            ClassSubjectTeacher.semester_id.in_(target_sem_ids)
+        ).all()
+        
+        # Gather subject IDs we need
+        cst_subject_ids = {r.subject_id for r in cst_rows}
+        all_subject_ids |= cst_subject_ids
+        
+        if all_subject_ids:
+            subjects_found = self.db.query(Subject).filter(
+                Subject.id.in_(all_subject_ids)
+            ).all()
+            subject_cache.update({s.id: s for s in subjects_found})
+        
+        # Identify and remove stale CST records
+        stale_cst_ids = []
+        stale_details = []
+        for cst in cst_rows:
+            pair = (cst.subject_id, cst.semester_id)
+            if pair not in active_subject_class_pairs:
+                # This CST references a subject-class that is no longer active
+                subj = subject_cache.get(cst.subject_id)
+                sem = semester_by_id.get(cst.semester_id)
+                stale_cst_ids.append(cst.id)
+                if subj and sem:
+                    stale_details.append(
+                        f"CST #{cst.id}: {subj.code} → {sem.code} "
+                        f"(subject no longer assigned to this class)"
+                    )
+        
+        if stale_cst_ids:
+            # Bulk delete stale records
+            self.db.query(ClassSubjectTeacher).filter(
+                ClassSubjectTeacher.id.in_(stale_cst_ids)
+            ).delete(synchronize_session='fetch')
+            self.db.flush()
+            
+            print(f"\n{'='*60}")
+            print(f"  AUTO-CLEANED {len(stale_cst_ids)} STALE TEACHER MAPPING(S)")
+            print(f"{'='*60}")
+            for d in stale_details[:10]:
+                print(f"  🧹 {d}")
+            if len(stale_details) > 10:
+                print(f"  ... and {len(stale_details) - 10} more.")
+        
+        # ================================================================
+        # PHASE 2: VALIDATE ACTIVE MAPPINGS ONLY
+        # ================================================================
+        # Only subject_semesters (the authoritative source) needs validation
+        for row in ss_rows:
+            subj = subject_cache.get(row.subject_id)
+            sem = semester_by_id.get(row.semester_id)
+            if subj and sem:
+                if subj.year != sem.year or subj.semester != sem.semester_number:
+                    violations.append(
+                        f"Subject {subj.code} (Year {subj.year}/Sem {subj.semester}) "
+                        f"assigned to Class {sem.code} (Year {sem.year}/Sem {sem.semester_number})"
+                    )
+        
+        # Deduplicate
+        violations = list(dict.fromkeys(violations))
+        
+        if violations:
+            print(f"\n{'='*60}")
+            print(f"  YEAR/SEMESTER INTEGRITY VIOLATIONS ({len(violations)})")
+            print(f"{'='*60}")
+            for v in violations[:20]:
+                print(f"  ❌ {v}")
+            if len(violations) > 20:
+                print(f"  ... and {len(violations) - 20} more violations.")
+        else:
+            cleaned_msg = f" (cleaned {len(stale_cst_ids)} stale mappings)" if stale_cst_ids else ""
+            print(f"   [OK] Year/Semester integrity check passed.{cleaned_msg}")
+        
+        return violations
     
     def _prefill_fixed_slots(
         self,
@@ -1723,6 +1912,14 @@ class TimetableGenerator:
         batch_map: Dict[Tuple[int, int, str], Dict[int, int]] = {}
         
         try:
+            from app.db.models import Batch
+            active_batches = self.db.query(Batch.id, Batch.semester_id).all()
+            valid_sem_batches = {}
+            for bid, sid in active_batches:
+                if sid not in valid_sem_batches:
+                    valid_sem_batches[sid] = set()
+                valid_sem_batches[sid].add(bid)
+
             assignments = self.db.query(ClassSubjectTeacher).filter(
                 ClassSubjectTeacher.batch_id.isnot(None)
             ).all()
@@ -1731,7 +1928,14 @@ class TimetableGenerator:
             return {}
             
         duplicate_batch_rows = 0
+        ignored_phantom_batches = 0
         for assignment in assignments:
+            # Enforce Generator Safety: Ignore Phantom Batches
+            valid_for_sem = valid_sem_batches.get(assignment.semester_id, set())
+            if assignment.batch_id not in valid_for_sem:
+                ignored_phantom_batches += 1
+                continue
+                
             key = (assignment.semester_id, assignment.subject_id, assignment.component_type.value)
             if key not in batch_map:
                 batch_map[key] = {}
@@ -1741,6 +1945,8 @@ class TimetableGenerator:
             batch_map[key][assignment.batch_id] = assignment.teacher_id
             
         print(f"   TOTAL BATCH-SPECIFIC MAPPINGS: {len(batch_map)}")
+        if ignored_phantom_batches:
+            print(f"   [INFO] Safely ignored {ignored_phantom_batches} phantom batch assignment(s) that didn't match the class.")
         if duplicate_batch_rows:
             print(
                 f"   [INFO] Ignored {duplicate_batch_rows} duplicate batch assignment row(s) "
@@ -1756,6 +1962,14 @@ class TimetableGenerator:
         room_map: Dict[Tuple[int, int, str], Dict[int, int]] = {}
         
         try:
+            from app.db.models import Batch
+            active_batches = self.db.query(Batch.id, Batch.semester_id).all()
+            valid_sem_batches = {}
+            for bid, sid in active_batches:
+                if sid not in valid_sem_batches:
+                    valid_sem_batches[sid] = set()
+                valid_sem_batches[sid].add(bid)
+
             assignments = self.db.query(ClassSubjectTeacher).filter(
                 ClassSubjectTeacher.batch_id.isnot(None),
                 ClassSubjectTeacher.room_id.isnot(None)
@@ -1765,7 +1979,14 @@ class TimetableGenerator:
             return {}
             
         duplicate_batch_room_rows = 0
+        ignored_phantom_rooms = 0
         for assignment in assignments:
+            # Enforce Generator Safety: Ignore Phantom Batches
+            valid_for_sem = valid_sem_batches.get(assignment.semester_id, set())
+            if assignment.batch_id not in valid_for_sem:
+                ignored_phantom_rooms += 1
+                continue
+                
             key = (assignment.semester_id, assignment.subject_id, assignment.component_type.value)
             if key not in room_map:
                 room_map[key] = {}
@@ -1775,6 +1996,8 @@ class TimetableGenerator:
             room_map[key][assignment.batch_id] = assignment.room_id
             
         print(f"   TOTAL BATCH-SPECIFIC ROOMS: {len(room_map)}")
+        if ignored_phantom_rooms:
+            print(f"   [INFO] Safely ignored {ignored_phantom_rooms} phantom batch room assignment(s) that didn't match the class.")
         if duplicate_batch_room_rows:
             print(
                 f"   [INFO] Ignored {duplicate_batch_room_rows} duplicate batch room mapping row(s) "
@@ -1804,6 +2027,71 @@ class TimetableGenerator:
         if result:
             print(f"   [PARALLEL] Found {len(result)} parallel lab group entries")
         return result
+
+    def _validate_multi_faculty_labs(
+        self,
+        requirements: List[ComponentRequirement],
+    ) -> List[str]:
+        """
+        Pre-generation health check for multi-faculty parallel lab requirements.
+        
+        Validates:
+        - Each multi-faculty lab has ≥2 batches (warn if only 1)
+        - No duplicate teacher_id across batches in the same requirement
+        - All batch teachers are active
+        
+        Returns list of warning/error strings (empty = all clear).
+        Does NOT block generation — only logs diagnostics.
+        """
+        issues: List[str] = []
+        
+        multi_faculty_reqs = [r for r in requirements if r.batch_allocations]
+        if not multi_faculty_reqs:
+            return issues
+        
+        print(f"\n   === MULTI-FACULTY LAB VALIDATION ({len(multi_faculty_reqs)} requirements) ===")
+        
+        # Pre-fetch active teacher IDs for validation
+        active_teacher_ids: Set[int] = set()
+        try:
+            rows = self.db.query(Teacher.id).filter(Teacher.is_active == True).all()
+            active_teacher_ids = {r[0] for r in rows}
+        except Exception as e:
+            print(f"   [WARN] Could not fetch active teachers for validation: {e}")
+            return issues
+        
+        for req in multi_faculty_reqs:
+            label = f"Class {req.semester_id} / {req.subject_code} ({req.academic_component})"
+            n_batches = len(req.batch_allocations)
+            
+            # Check 1: Single-batch warning (likely misconfiguration)
+            if n_batches == 1:
+                msg = f"[WARN] {label}: Only 1 batch assigned -- will schedule as multi-faculty but may be misconfigured."
+                issues.append(msg)
+                print(f"   {msg}")
+            
+            # Check 2: Duplicate teachers across batches
+            teacher_ids = list(req.batch_allocations.values())
+            if len(teacher_ids) != len(set(teacher_ids)):
+                from collections import Counter
+                dupes = [tid for tid, count in Counter(teacher_ids).items() if count > 1]
+                msg = f"[ERROR] {label}: Duplicate teacher(s) across batches: {dupes}. Each batch must have a unique teacher."
+                issues.append(msg)
+                print(f"   {msg}")
+            
+            # Check 3: Inactive teachers
+            for batch_id, teacher_id in req.batch_allocations.items():
+                if teacher_id not in active_teacher_ids:
+                    msg = f"[WARN] {label}: Teacher {teacher_id} (batch {batch_id}) is inactive or missing."
+                    issues.append(msg)
+                    print(f"   {msg}")
+        
+        if not issues:
+            print(f"   [OK] All {len(multi_faculty_reqs)} multi-faculty lab requirements passed validation.")
+        else:
+            print(f"   [!] {len(issues)} issue(s) found across {len(multi_faculty_reqs)} multi-faculty lab requirements.")
+        
+        return issues
 
     def _read_teacher_subjects_mapping_strict(self) -> Dict[Tuple[int, int, str], int]:
         """
@@ -2199,7 +2487,14 @@ class TimetableGenerator:
         semester_subject_ids: Dict[int, Set[int]] = {}
         subject_by_id = {s.id: s for s in subjects}
         for semester in semesters:
-            subj_list = list(getattr(semester, "subjects", []) or [])
+            # STRICT FILTER: Load only subjects where subject.year == class.year AND subject.semester == class.semester
+            subj_list = []
+            for s in list(getattr(semester, "subjects", []) or []):
+                if s.year == semester.year and s.semester == semester.semester_number:
+                    subj_list.append(s)
+                else:
+                    print(f"   [STRICT] Dropped mismatched subject {s.code} (Y{s.year}/S{s.semester}) from Class {semester.name} (Y{semester.year}/S{semester.semester_number})")
+                    
             semester_subjects_map[semester.id] = subj_list
             semester_subject_ids[semester.id] = {s.id for s in subj_list}
 
@@ -2224,6 +2519,11 @@ class TimetableGenerator:
         for (sem_id, subj_id, _), teacher_id in teacher_map.items():
             if sem_id in semester_subjects_map and subj_id in subject_by_id:
                 subj = subject_by_id[subj_id]
+                sem = semester_by_id.get(sem_id)
+                # STRICT FILTER: Do not load subjects from unrelated years/semesters via stale mappings
+                if sem and (subj.year != sem.year or subj.semester != sem.semester_number):
+                    continue # DROP STALE MAPPING
+                    
                 basket_id = getattr(subj, "elective_basket_id", None)
                 if basket_id is not None:
                     allowed_semesters = basket_semester_map.get(basket_id, set())
@@ -2247,6 +2547,16 @@ class TimetableGenerator:
                         semester_subjects_map[sem.id].append(subj)
 
         missing_elective_teachers: List[Tuple[int, str, str]] = []
+        
+        # NEW: Pre-fetch all lab teachers to support multi-teacher lab sessions without batches
+        all_lab_csts = self.db.query(ClassSubjectTeacher).filter(
+            ClassSubjectTeacher.semester_id.in_(target_sem_ids),
+            ClassSubjectTeacher.component_type == ComponentType.LAB
+        ).all()
+        lab_teachers_map = {}
+        for c in all_lab_csts:
+            k = (c.semester_id, c.subject_id)
+            lab_teachers_map.setdefault(k, set()).add(c.teacher_id)
         
         for semester in semesters:
             year = getattr(semester, 'year', None) or ((semester.semester_number + 1) // 2)
@@ -2297,9 +2607,17 @@ class TimetableGenerator:
                             f"Class {semester.id} ({semester.name}) - leaving unassigned"
                         )
                     
-                    # 2. Read BATCH teachers (split class)
-                    batch_allocs = batch_map.get(lookup_key, {})
-                    batch_room_allocs = batch_room_map.get(lookup_key, {})
+                    # NEW: Multi-teacher lab support
+                    teacher_ids_list = []
+                    if comp_type == ComponentType.LAB:
+                        lab_t = lab_teachers_map.get((semester.id, subject.id), set())
+                        teacher_ids_list = list(lab_t)
+                        # If we have multiple teachers, we don't strictly need a primary teacher_id
+                        if not teacher_id and teacher_ids_list:
+                            teacher_id = teacher_ids_list[0]
+                    else:
+                        if teacher_id is not None:
+                            teacher_ids_list = [teacher_id]
 
                     # Read optional room preference
                     preferred_room_id = room_map.get(lookup_key)
@@ -2307,8 +2625,8 @@ class TimetableGenerator:
                     # VALIDITY CHECK:
                     # Requirement exists if:
                     # A. There is a primary teacher assigned OR
-                    # B. There are batch assignments (parallel scheduling)
-                    if teacher_id is not None or batch_allocs:
+                    # B. There are multi-teachers (labs)
+                    if teacher_id is not None or teacher_ids_list:
                         req = ComponentRequirement(
                             semester_id=semester.id,
                             subject_id=subject.id,
@@ -2323,10 +2641,9 @@ class TimetableGenerator:
                             is_elective=is_elective,
                             elective_basket_id=subject.elective_basket_id,
                             year=year,
-                            assigned_teacher_id=teacher_id, # Can be None if only batches exist
+                            assigned_teacher_id=teacher_id, 
+                            teacher_ids=teacher_ids_list,
                             assigned_room_id=preferred_room_id,
-                            batch_allocations=batch_allocs,
-                            batch_room_allocations=batch_room_allocs,
                             parallel_lab_group=parallel_lab_group_map.get(lookup_key),
                             priority_weight=getattr(subject, 'computed_priority_score', 0) or 0
                         )
@@ -3267,192 +3584,107 @@ class TimetableGenerator:
             lab_slots = [(d, block) for d in range(DAYS_PER_WEEK) for block in self.valid_lab_blocks]
             random.shuffle(lab_slots)
             
-            # CASE 1: PARALLEL BATCHES (Split Class)
-            if req.batch_allocations:
-                # We need to schedule MULTIPLE allocations per slot (one for each batch)
-                # All batches must be scheduled at the SAME TIME.
-                n_batches = len(req.batch_allocations)
-                print(f"      [PARALLEL] Scheduling {n_batches} batches for {req.subject_code} ({blocks_needed} blocks)")
+            # NEW: UNIFIED MULTI-TEACHER LAB SCHEDULING (Replaces Batches)
+            teacher_ids = req.teacher_ids or []
+            if req.assigned_teacher_id and req.assigned_teacher_id not in teacher_ids:
+                teacher_ids.append(req.assigned_teacher_id)
                 
-                batches = list(req.batch_allocations.items()) # [(batch_id, teacher_id), ...]
+            if not teacher_ids:
+                continue
                 
-                # Score slots by day load for better distribution
-                def batch_slot_score(day_block):
-                    day, (s1, s2) = day_block
-                    day_load = sum(
-                        1 for sl in range(SLOTS_PER_DAY)
-                        if not state.is_semester_free(req.semester_id, day, sl)
-                    )
-                    return day_load
+            rejection_reasons = []
 
-                lab_slots_scored = sorted(lab_slots, key=batch_slot_score)
-                # Shuffle within same-score groups
-                import itertools as _it
-                scored_items = [(batch_slot_score(s), s) for s in lab_slots_scored]
-                lab_slots_final = []
-                for _, grp in _it.groupby(scored_items, key=lambda x: x[0]):
-                    bucket = [item[1] for item in grp]
-                    random.shuffle(bucket)
-                    lab_slots_final.extend(bucket)
-
-                # Pre-sort rooms for batch allocation (prefer lab-type, then by capacity)
-                batch_rooms = sorted(
-                    [r for r in rooms if (not req.preferred_room_types or r.room_type in req.preferred_room_types)],
-                    key=lambda r: r.capacity
-                )
-                if not batch_rooms:
-                    batch_rooms = sorted(rooms, key=lambda r: r.capacity)
-
-                for day, (start_slot, end_slot) in lab_slots_final:
-                    if blocks_scheduled >= blocks_needed:
-                        break
-                    
-                    # 1. Check if Semester is free (prevent overlap with whole-class lectures)
-                    if not (state.is_semester_free(req.semester_id, day, start_slot) and
-                            state.is_semester_free(req.semester_id, day, end_slot)):
-                        continue
-
-                    # 2. Check ALL Teachers
-                    teachers_eligible = True
-                    for batch_id, teacher_id in batches:
-                        if not (state.is_teacher_eligible(teacher_id, day, start_slot) and
-                                state.is_teacher_eligible(teacher_id, day, end_slot)):
-                            teachers_eligible = False
-                            break
-                    if not teachers_eligible:
-                        continue
-                        
-                    # 3. Find Rooms for EACH Batch (best-fit allocation)
-                    chosen_rooms = {} # batch_id -> room
-                    used_rooms_in_this_slot = set()
-                    
-                    rooms_ok = True
-                    
-                    for batch_id, teacher_id in batches:
-                        # Check for specific room
-                        specific_room_id = req.batch_room_allocations.get(batch_id)
-                        
-                        room = None
-                        if specific_room_id:
-                            room = next(
-                                (r for r in rooms
-                                 if r.id == specific_room_id
-                                 and r.id not in used_rooms_in_this_slot
-                                 and state.is_room_free(r.id, day, start_slot)
-                                 and state.is_room_free(r.id, day, end_slot)),
-                                None
-                            )
-                        if not room:
-                            # Best-fit from pre-sorted pool
-                            room = next(
-                                (r for r in batch_rooms
-                                 if r.capacity >= 20
-                                 and r.id not in used_rooms_in_this_slot
-                                 and state.is_room_free(r.id, day, start_slot)
-                                 and state.is_room_free(r.id, day, end_slot)),
-                                None
-                            )
-                        
-                        if room:
-                            chosen_rooms[batch_id] = room
-                            used_rooms_in_this_slot.add(room.id)
-                        else:
-                            rooms_ok = False
-                            break
-                    
-                    if rooms_ok:
-                        # COMMIT ALL BATCHES
-                        for batch_id, teacher_id in batches:
-                            room = chosen_rooms[batch_id]
-                            for idx, slot in enumerate([start_slot, end_slot]):
-                                entry = AllocationEntry(
-                                    semester_id=req.semester_id,
-                                    subject_id=req.subject_id,
-                                    teacher_id=teacher_id,
-                                    room_id=room.id,
-                                    day=day,
-                                    slot=slot,
-                                    component_type=req.component_type,
-                                    academic_component=req.academic_component,
-                                    is_lab_continuation=(idx == 1),
-                                    batch_id=batch_id # KEY: Assign to specific batch
-                                )
-                                state.add_allocation(entry)
-                                allocations_added += 1
-                                
-                        blocks_scheduled += 1
-
-            # CASE 2: REGULAR LAB (Whole Class)
-            else:
-                teacher_id = req.assigned_teacher_id
-                if not teacher_id:
+            for day, (start_slot, end_slot) in lab_slots:
+                if blocks_scheduled >= blocks_needed:
+                    break
+                
+                # Check class availability
+                if not (state.is_semester_free(req.semester_id, day, start_slot) and
+                        state.is_semester_free(req.semester_id, day, end_slot)):
+                    rejection_reasons.append(f"Day {day} {start_slot}-{end_slot}: Class not free")
                     continue
                 
-                for day, (start_slot, end_slot) in lab_slots:
-                    if blocks_scheduled >= blocks_needed:
+                # Check ALL teachers availability
+                all_teachers_free = True
+                for t_id in teacher_ids:
+                    if not (state.is_teacher_eligible(t_id, day, start_slot) and
+                            state.is_teacher_eligible(t_id, day, end_slot)):
+                        all_teachers_free = False
+                        rejection_reasons.append(f"Day {day} {start_slot}-{end_slot}: Teacher {t_id} busy")
                         break
-                    
-                    # Check availability
-                    if not (state.is_semester_free(req.semester_id, day, start_slot) and
-                            state.is_semester_free(req.semester_id, day, end_slot)):
-                        continue
-                    
-                    # STRICT eligibility check
-                    if not (state.is_teacher_eligible(teacher_id, day, start_slot) and
-                            state.is_teacher_eligible(teacher_id, day, end_slot)):
-                        continue
+                
+                if not all_teachers_free:
+                    continue
 
-                    room = None
-                    if req.assigned_room_id:
-                        room = next(
-                            (r for r in rooms
-                             if r.id == req.assigned_room_id
-                             and r.capacity >= req.min_room_capacity
-                             and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
-                             and state.is_room_free(r.id, day, start_slot)
-                             and state.is_room_free(r.id, day, end_slot)),
-                            None
+                # Find Room
+                room = None
+                if req.assigned_room_id:
+                    room = next(
+                        (r for r in rooms
+                         if r.id == req.assigned_room_id
+                         and r.capacity >= req.min_room_capacity
+                         and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
+                         and state.is_room_free(r.id, day, start_slot)
+                         and state.is_room_free(r.id, day, end_slot)),
+                        None
+                    )
+                if not room:
+                    room = next(
+                        (r for r in rooms
+                         if r.capacity >= req.min_room_capacity
+                         and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
+                         and state.is_room_free(r.id, day, start_slot)
+                         and state.is_room_free(r.id, day, end_slot)),
+                        None
+                    )
+                
+                if not room:
+                    rejection_reasons.append(f"Day {day} {start_slot}-{end_slot}: No free lab room")
+                    continue
+
+                # Schedule all teachers into the same room and same slots (NO BATCHES)
+                for t_id in teacher_ids:
+                    for idx, slot in enumerate([start_slot, end_slot]):
+                        entry = AllocationEntry(
+                            semester_id=req.semester_id,
+                            subject_id=req.subject_id,
+                            teacher_id=t_id,
+                            room_id=room.id,
+                            day=day,
+                            slot=slot,
+                            component_type=req.component_type,
+                            academic_component=req.academic_component,
+                            is_lab_continuation=(idx == 1),
+                            batch_id=None # ALWAYS NONE
                         )
-                    else:
-                        room = next(
-                            (r for r in rooms
-                             if r.capacity >= req.min_room_capacity
-                             and (not req.preferred_room_types or r.room_type in req.preferred_room_types)
-                             and state.is_room_free(r.id, day, start_slot)
-                             and state.is_room_free(r.id, day, end_slot)),
-                            None
-                        )
-                    
-                    if room:
-                        for idx, slot in enumerate([start_slot, end_slot]):
-                            entry = AllocationEntry(
-                                semester_id=req.semester_id,
-                                subject_id=req.subject_id,
-                                teacher_id=teacher_id,
-                                room_id=room.id,
-                                day=day,
-                                slot=slot,
-                                component_type=req.component_type,
-                                academic_component=req.academic_component,
-                                is_lab_continuation=(idx == 1)
-                            )
-                            state.add_allocation(entry)
-                            allocations_added += 1
-                        blocks_scheduled += 1
+                        # We use force_parallel=True to allow multi-teacher assignment logic to kick in
+                        state.add_allocation(entry, force_parallel=True)
+                        allocations_added += 1
+                
+                blocks_scheduled += 1
 
             if blocks_scheduled < blocks_needed:
                 missing = blocks_needed - blocks_scheduled
-                if req.batch_allocations:
+                if len(teacher_ids) > 1:
+                    # Summarize top reasons to keep it readable
+                    from collections import Counter
+                    reason_counts = Counter(rejection_reasons)
+                    top_reasons = ", ".join([f"{k}" for k, v in reason_counts.most_common(5)])
+                    
                     fail_msg = (
-                        f"[LAB] Class {req.semester_id} {req.subject_code} ({req.academic_component}): "
-                        f"Unscheduled {missing}/{blocks_needed} batch block(s). "
-                        "Likely teacher or room constraint for one/more batches."
+                        f"Conflict: Class {req.semester_id} Subject {req.subject_code} (Multi-Batch Lab)\n"
+                        f"No continuous {req.block_size}-slot block available. Short by {missing} blocks.\n"
+                        f"Blocked because: {top_reasons}"
                     )
                 else:
+                    from collections import Counter
+                    reason_counts = Counter(rejection_reasons)
+                    top_reasons = ", ".join([f"{k}" for k, v in reason_counts.most_common(5)])
+                    
                     fail_msg = (
-                        f"[LAB] Class {req.semester_id} {req.subject_code} ({req.academic_component}): "
-                        f"Unscheduled {missing}/{blocks_needed} block(s). "
-                        f"Assigned teacher {req.assigned_teacher_id} not available with a valid room pair."
+                        f"Conflict: Class {req.semester_id} Subject {req.subject_code} (Lab)\n"
+                        f"No continuous {req.block_size}-slot block available. Short by {missing} blocks.\n"
+                        f"Blocked because: {top_reasons}"
                     )
                 self.allocation_failures.append(fail_msg)
                 failed_reqs.append(req)
@@ -4118,6 +4350,17 @@ class TimetableGenerator:
                         self.allocation_failures.append(fail_msg)
 
             if sem_free > 0:
+                # FREE PERIOD AUDIT: Check for Subject shortage
+                total_required_hours = sum(r.hours_per_week for r in theory_reqs if r.semester_id == sem_id)
+                if total_required_hours < 35:
+                    missing_hours = 35 - total_required_hours
+                    audit_msg = (
+                        f"[THEORY] Class {sem_id} has free periods due to Subject shortage "
+                        f"(Configured for {total_required_hours}/35 hours. Missing {missing_hours} hours)."
+                    )
+                    if audit_msg not in self.allocation_failures:
+                        self.allocation_failures.append(audit_msg)
+                        
                 print(f"         -> {sem_filled} subjects + {sem_free} FREE")
             else:
                 print(f"         -> {sem_filled} subjects")
@@ -4144,7 +4387,7 @@ class TimetableGenerator:
             if entry.teacher_id is None or entry.subject_id is None or entry.room_id is None:
                 continue
                 
-            key = (entry.semester_id, entry.subject_id, entry.day, entry.slot)
+            key = (entry.semester_id, entry.subject_id, entry.day, entry.slot, entry.batch_id, entry.teacher_id)
             if key not in seen:
                 seen.add(key)
                 unique.append(entry)

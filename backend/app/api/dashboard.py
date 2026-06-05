@@ -1,9 +1,15 @@
 """
 Dashboard API routes.
 Provides summary statistics and quick access data.
+
+OPTIMIZATIONS (v2):
+- Cached dashboard stats (30s TTL) to prevent repeated COUNT queries
+- Single-query approach where possible
+- Null-safe error handling with graceful degradation
 """
 from datetime import date
 from typing import Optional
+import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
@@ -16,8 +22,10 @@ from app.db.models import (
 )
 from app.schemas.schemas import DashboardStats, TeacherLoadDashboard
 from app.services.reporting import build_teacher_load_dashboard
+from app.core.cache import cache
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+logger = logging.getLogger("app.dashboard")
 
 
 @router.get("/stats", response_model=DashboardStats)
@@ -25,7 +33,12 @@ def get_dashboard_stats(
     dept_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Get dashboard statistics, optionally scoped to a department."""
+    """Get dashboard statistics, optionally scoped to a department. Cached for 30s."""
+    cache_key = f"dashboard_stats:{dept_id or 'all'}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     today = date.today()
 
     try:
@@ -94,7 +107,7 @@ def get_dashboard_stats(
             TeacherAbsence.absence_date == today
         ).scalar() or 0
 
-        return DashboardStats(
+        result = DashboardStats(
             total_teachers=total_teachers,
             total_subjects=total_subjects,
             total_semesters=total_semesters,
@@ -105,8 +118,12 @@ def get_dashboard_stats(
             active_substitutions=active_substitutions,
             teachers_absent_today=teachers_absent_today,
         )
+
+        # Cache for 30 seconds
+        cache.set(cache_key, result, ttl=30, tags=["dashboard", "allocations"])
+        return result
     except Exception as e:
-        print(f"[ERROR] Dashboard stats failed (dept_id={dept_id}): {e}")
+        logger.error(f"Dashboard stats failed (dept_id={dept_id}): {e}", exc_info=True)
         return DashboardStats(
             total_teachers=0,
             total_subjects=0,
@@ -148,7 +165,7 @@ def get_recent_substitutions(
 
         return result
     except Exception as e:
-        print(f"[ERROR] Recent substitutions failed: {e}")
+        logger.error(f"Recent substitutions failed: {e}", exc_info=True)
         return []
 
 
@@ -158,5 +175,12 @@ def get_teacher_load_dashboard(
     year: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Teacher load dashboard (READ-ONLY)."""
-    return build_teacher_load_dashboard(db, dept_id=dept_id, year=year)
+    """Teacher load dashboard (READ-ONLY). Cached for 60s."""
+    cache_key = f"teacher_load:{dept_id or 'all'}:{year or 'all'}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = build_teacher_load_dashboard(db, dept_id=dept_id, year=year)
+    cache.set(cache_key, result, ttl=60, tags=["dashboard", "reports", "teachers"])
+    return result
